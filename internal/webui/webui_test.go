@@ -3,9 +3,12 @@ package webui
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -74,6 +77,40 @@ func TestGzipMissingWASMFallsThrough(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.Empty(t, rec.Header().Get("Content-Encoding"))
+}
+
+func TestGzipUnknownWASMNamesDoNotGrowCache(t *testing.T) {
+	handler := newStaticHandler(fstest.MapFS{
+		"ui.wasm":    &fstest.MapFile{Data: []byte("real wasm")},
+		"index.html": &fstest.MapFile{Data: []byte("only html")},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/ui.wasm", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	require.Equal(t, 1, cacheSize(&handler.caches))
+
+	for i := 0; i < 1000; i++ {
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/bogus-%d.wasm", i), nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNotFound, rec.Code)
+	}
+	require.Equal(t, 1, cacheSize(&handler.caches))
+
+	_, err := handler.compressed("sub.wasm")
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	require.Equal(t, 1, cacheSize(&handler.caches))
+}
+
+func cacheSize(m *sync.Map) int {
+	n := 0
+	m.Range(func(_, _ any) bool {
+		n++
+		return true
+	})
+	return n
 }
 
 func bytesRepeat(part string, n int) []byte {
