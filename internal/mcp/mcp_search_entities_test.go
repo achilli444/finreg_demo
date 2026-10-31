@@ -7,6 +7,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -139,4 +140,36 @@ func TestSearchEntities_AlgorithmInvalid(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown algorithm")
+}
+
+func TestSearchEntities_LimitIsClamped(t *testing.T) {
+	srv := newTestServer(t)
+
+	cases := []struct {
+		name  string
+		limit int
+	}{
+		{name: "negative", limit: -1},
+		{name: "zero", limit: 0},
+		{name: "max int", limit: math.MaxInt},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			limit := tc.limit
+			var resp pubsearch.SearchResponse
+			require.NotPanics(t, func() {
+				result, _, err := srv.HandleSearchEntities(context.Background(), &mcpsdk.CallToolRequest{}, SearchEntitiesRequest{
+					Request: SearchEntityRequest{Name: "Logan", Type: pubsearch.EntityPerson},
+					Limit:   &limit,
+				})
+				require.NoError(t, err)
+				require.Len(t, result.Content, 1)
+
+				text := result.Content[0].(*mcpsdk.TextContent).Text
+				require.NoError(t, json.Unmarshal([]byte(text), &resp))
+			})
+			require.NotEmpty(t, resp.Entities)
+			require.LessOrEqual(t, len(resp.Entities), 100)
+		})
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -138,7 +139,7 @@ func (s *service) performEmbeddingSearch(ctx context.Context, query search.Entit
 	defer span.End()
 
 	// Search using embeddings (fetch extra to account for filtering)
-	results, err := s.embeddings.Search(ctx, query.Name, opts.Limit*embeddingSearchLimitMultiplier)
+	results, err := s.embeddings.Search(ctx, query.Name, embeddingSearchLimit(opts.Limit))
 	if err != nil {
 		s.logger.Error().Logf("embedding search failed: %v", err)
 		return nil, fmt.Errorf("embedding search: %w", err)
@@ -205,6 +206,18 @@ func (s *service) performEmbeddingSearch(ctx context.Context, query search.Entit
 	}
 
 	return out, nil
+}
+
+// embeddingSearchLimit returns how many candidates to fetch from the embedding
+// index for the requested result limit, without going negative or overflowing.
+func embeddingSearchLimit(limit int) int {
+	if limit <= 0 {
+		limit = softResultsLimit
+	}
+	if limit > math.MaxInt/embeddingSearchLimitMultiplier {
+		return math.MaxInt
+	}
+	return limit * embeddingSearchLimitMultiplier
 }
 
 type SearchOpts struct {

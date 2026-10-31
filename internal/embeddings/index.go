@@ -65,7 +65,7 @@ func (idx *vectorIndex) Search(query []float64, k int) ([]SearchResult, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	if idx.count == 0 {
+	if idx.count == 0 || k <= 0 {
 		return nil, nil
 	}
 
@@ -138,6 +138,12 @@ func (idx *vectorIndex) Search(query []float64, k int) ([]SearchResult, error) {
 // selectTopK uses a min-heap to efficiently find the k highest scores.
 // Time complexity: O(n log k) vs O(n log n) for full sort.
 func selectTopK(scores []scored, k int) ([]scored, error) {
+	if k <= 0 {
+		return nil, nil
+	}
+	if k > len(scores) {
+		k = len(scores)
+	}
 	h := &minHeap{data: make([]scored, 0, k)}
 	heap.Init(h)
 

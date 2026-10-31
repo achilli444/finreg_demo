@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -243,4 +244,24 @@ func testInputs(tb testing.TB, paths ...string) map[string]io.ReadCloser {
 		input[filename] = fd
 	}
 	return input
+}
+
+func TestEmbeddingSearchLimit(t *testing.T) {
+	cases := []struct {
+		name  string
+		input int
+		want  int
+	}{
+		{name: "negative", input: -1, want: softResultsLimit * embeddingSearchLimitMultiplier},
+		{name: "zero", input: 0, want: softResultsLimit * embeddingSearchLimitMultiplier},
+		{name: "in range", input: 10, want: 10 * embeddingSearchLimitMultiplier},
+		{name: "max int does not overflow", input: math.MaxInt, want: math.MaxInt},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := embeddingSearchLimit(tc.input)
+			require.Positive(t, got)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

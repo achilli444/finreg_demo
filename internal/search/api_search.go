@@ -161,11 +161,18 @@ func extractSearchLimit(q *api.QueryParams) int {
 			limit = n
 		}
 	}
-	if limit > hardResultsLimit {
-		limit = hardResultsLimit
+	return ClampSearchLimit(limit)
+}
+
+// ClampSearchLimit bounds a caller-supplied result limit to the same range the
+// HTTP search API accepts: non-positive values fall back to the default (10)
+// and values above the hard maximum (100) are capped.
+func ClampSearchLimit(limit int) int {
+	if limit <= 0 {
+		return softResultsLimit
 	}
-	if limit < 0 {
-		limit = softResultsLimit
+	if limit > hardResultsLimit {
+		return hardResultsLimit
 	}
 	return limit
 }

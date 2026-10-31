@@ -1,6 +1,7 @@
 package embeddings
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -157,4 +158,46 @@ func TestNormalizeL2_ZeroVector(t *testing.T) {
 
 	// Should return unchanged (avoid division by zero)
 	require.Equal(t, vec, normalized)
+}
+
+func TestVectorIndex_SearchInvalidK(t *testing.T) {
+	idx := newVectorIndex(2)
+	idx.Add([][]float64{{1, 0}, {0, 1}, {0.7, 0.7}}, []string{"a", "b", "c"}, []string{"A", "B", "C"})
+
+	cases := []struct {
+		name string
+		k    int
+		want int
+	}{
+		{name: "negative", k: -1, want: 0},
+		{name: "zero", k: 0, want: 0},
+		{name: "max int", k: math.MaxInt, want: 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				results, err := idx.Search([]float64{1, 0}, tc.k)
+				require.NoError(t, err)
+				require.Len(t, results, tc.want)
+			})
+		})
+	}
+}
+
+func TestSelectTopK_InvalidK(t *testing.T) {
+	scores := []scored{{idx: 0, score: 0.1}, {idx: 1, score: 0.9}}
+
+	for _, k := range []int{-1, 0} {
+		require.NotPanics(t, func() {
+			result, err := selectTopK(scores, k)
+			require.NoError(t, err)
+			require.Empty(t, result)
+		})
+	}
+
+	// k larger than the number of scores is capped rather than over-allocating
+	result, err := selectTopK(scores, 10)
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+	require.Equal(t, 1, result[0].idx)
 }
