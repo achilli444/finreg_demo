@@ -17,6 +17,11 @@ type Stats struct {
 	Lists      map[string]int    `json:"lists"`
 	ListHashes map[string]string `json:"listHashes"`
 
+	// IgnoredErrors maps a source-list name to the download/parse error that was
+	// suppressed because the list is in IgnoredDownloadErrors. Lists present here
+	// are absent from Lists/ListHashes/Entities for this refresh.
+	IgnoredErrors map[string]string `json:"ignoredErrors,omitempty"`
+
 	StartedAt time.Time `json:"startedAt"`
 	EndedAt   time.Time `json:"endedAt"`
 

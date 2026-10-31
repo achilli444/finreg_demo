@@ -65,9 +65,10 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 	start := time.Now()
 
 	stats := Stats{
-		Lists:      make(map[string]int),
-		ListHashes: make(map[string]string),
-		StartedAt:  time.Now().In(time.UTC),
+		Lists:         make(map[string]int),
+		ListHashes:    make(map[string]string),
+		IgnoredErrors: make(map[string]string),
+		StartedAt:     time.Now().In(time.UTC),
 	}
 
 	// Validate IgnoredDownloadErrors before spawning any goroutines so we can
@@ -90,6 +91,14 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 		defer close(resultsDone)
 
 		for list := range preparedLists {
+			if list.Err != nil {
+				// The list is in IgnoredDownloadErrors and failed to load. Record the
+				// failure so callers (Refresher) can keep the previous generation of
+				// this list instead of silently dropping it from the index.
+				stats.IgnoredErrors[string(list.ListName)] = list.Err.Error()
+				continue
+			}
+
 			entities := list.Entities
 
 			// Apply geocoding to entities if service is available
@@ -141,8 +150,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadOFACRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUSOFAC) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUSOFAC, err)
-					return nil
+					return ignoreListError(logger, search.SourceUSOFAC, err, preparedLists)
 				}
 				return fmt.Errorf("loading OFAC records: %w", err)
 			}
@@ -161,8 +169,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadUSNonSDNRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUSNonSDN) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUSNonSDN, err)
-					return nil
+					return ignoreListError(logger, search.SourceUSNonSDN, err, preparedLists)
 				}
 				return fmt.Errorf("loading OFAC Non-SDN records: %w", err)
 			}
@@ -181,8 +188,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadCSLUSRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUSCSL) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUSCSL, err)
-					return nil
+					return ignoreListError(logger, search.SourceUSCSL, err, preparedLists)
 				}
 				return fmt.Errorf("loading US CSL records: %w", err)
 			}
@@ -201,8 +207,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadFinCEN311Records(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUSFinCEN311) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUSFinCEN311, err)
-					return nil
+					return ignoreListError(logger, search.SourceUSFinCEN311, err, preparedLists)
 				}
 				return fmt.Errorf("loading FinCEN 311 records: %w", err)
 			}
@@ -221,8 +226,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadUKCSLRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUKCSL) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUKCSL, err)
-					return nil
+					return ignoreListError(logger, search.SourceUKCSL, err, preparedLists)
 				}
 				return fmt.Errorf("loading UK CSL records: %w", err)
 			}
@@ -241,8 +245,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadEUCSLRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceEUCSL) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceEUCSL, err)
-					return nil
+					return ignoreListError(logger, search.SourceEUCSL, err, preparedLists)
 				}
 				return fmt.Errorf("loading EU CSL records: %w", err)
 			}
@@ -291,8 +294,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadUNCSLRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUNCSL) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUNCSL, err)
-					return nil
+					return ignoreListError(logger, search.SourceUNCSL, err, preparedLists)
 				}
 				return fmt.Errorf("loading UN CSL records: %w", err)
 			}
@@ -311,8 +313,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			err := loadUSTelRecords(ctx, logger, dl.conf, preparedLists)
 			if err != nil {
 				if slices.Contains(ignoredLists, search.SourceUSTEL) {
-					logger.Warn().Logf("ignoring error loading %s: %v", search.SourceUSTEL, err)
-					return nil
+					return ignoreListError(logger, search.SourceUSTEL, err, preparedLists)
 				}
 				return fmt.Errorf("loading US TEL records: %w", err)
 			}
@@ -528,6 +529,22 @@ type preparedList struct {
 	Entities []search.Entity[search.Value]
 
 	Hash string
+
+	// Err is set when the list is named in IgnoredDownloadErrors and failed to
+	// download or parse. No entities are sent for the list in that case.
+	Err error
+}
+
+// ignoreListError logs a suppressed download/parse failure for a list named in
+// IgnoredDownloadErrors and reports it on the results channel so the failure is
+// recorded in Stats.IgnoredErrors rather than silently dropped.
+func ignoreListError(logger log.Logger, list search.SourceList, err error, responseCh chan preparedList) error {
+	logger.Warn().Logf("ignoring error loading %s: %v", list, err)
+	responseCh <- preparedList{
+		ListName: list,
+		Err:      err,
+	}
+	return nil
 }
 
 func expandInitialDir(initialDir string) string {

@@ -128,6 +128,9 @@ sum(rate(watchman_http_request_duration_seconds_count[5m])) by (route)
 
     # Source-list names for which download or parse errors are suppressed.
     # A failed list named here will log a warning but will not cause a refresh error.
+    # The previously loaded data for that list is kept, GET /v2/data/refresh reports
+    # state "degraded" with the per-list error, and the
+    # watchman_data_refresh_ignored_list_errors_total metric is incremented.
     IgnoredDownloadErrors: []
 
     # When true, an empty list after download/parse will cause a hard error (useful for

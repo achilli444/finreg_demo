@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -71,8 +72,7 @@ func processSenzingList(ctx context.Context, logger log.Logger, dl *download.Dow
 	files, err := dl.GetFiles(ctx, initialDir, locations)
 	if err != nil {
 		if ignored {
-			logger.Warn().Logf("ignoring download error for %s: %v", source, err)
-			return nil
+			return ignoreListError(logger, source, fmt.Errorf("download error: %w", err), responseCh)
 		}
 		return fmt.Errorf("loading senzing file %s: %w", source, err)
 	}
@@ -81,8 +81,7 @@ func processSenzingList(ctx context.Context, logger log.Logger, dl *download.Dow
 	contents, ok := files[string(source)]
 	if !ok {
 		if ignored {
-			logger.Warn().Logf("ignoring download failure for %s: file not available", source)
-			return nil
+			return ignoreListError(logger, source, errors.New("download failed: file not available"), responseCh)
 		}
 		return fmt.Errorf("download failed for senzing list %s: file not available", source)
 	}
@@ -92,16 +91,14 @@ func processSenzingList(ctx context.Context, logger log.Logger, dl *download.Dow
 	entities, err := senzing.ReadEntities(r, source)
 	if err != nil {
 		if ignored {
-			logger.Warn().Logf("ignoring error parsing %s: %v", source, err)
-			return nil
+			return ignoreListError(logger, source, fmt.Errorf("parsing failed: %w", err), responseCh)
 		}
 		return fmt.Errorf("parsing %s failed: %w", source, err)
 	}
 
 	if len(entities) == 0 && errorOnEmptyList(params.config) {
 		if ignored {
-			logger.Warn().Logf("ignoring empty list for %s", source)
-			return nil
+			return ignoreListError(logger, source, errors.New("no entities parsed from list"), responseCh)
 		}
 		return fmt.Errorf("no entities parsed from senzing list: %#v", source)
 	}
