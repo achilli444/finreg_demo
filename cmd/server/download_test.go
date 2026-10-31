@@ -15,6 +15,7 @@ import (
 	"github.com/moov-io/watchman/internal/download"
 	"github.com/moov-io/watchman/internal/fshelp"
 	"github.com/moov-io/watchman/internal/index"
+	"github.com/moov-io/watchman/pkg/search"
 
 	"github.com/moov-io/base/log"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,8 @@ func TestDownloader_setupPeriodicRefreshing(t *testing.T) {
 	require.NoError(t, err)
 
 	conf := download.Config{
-		InitialDataDirectory: filepath.Join(pkg, "ofac", "testdata"),
+		InitialDataDirectory: filepath.Join(pkg, "sources", "ofac", "testdata"),
+		IncludedLists:        []search.SourceList{search.SourceUSOFAC},
 	}
 
 	dl, err := download.NewDownloader(logger, conf, nil)

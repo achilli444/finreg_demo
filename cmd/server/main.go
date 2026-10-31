@@ -127,6 +127,8 @@ func main() {
 		os.Exit(1)
 	}
 	refreshManager := download.NewRefresher(ctx, logger, downloader, indexedLists, searchService)
+	// Publish the loaded list set and per-list entity counts on the admin server's /metrics.
+	refreshManager.SetListMetrics(metrics.NewDownloadMetrics(prometheus.DefaultRegisterer))
 	err = setupPeriodicRefreshing(ctx, logger, errs, conf.Download, refreshManager)
 	if err != nil {
 		logger.Fatal().LogErrorf("problem during initial download: %v", err)

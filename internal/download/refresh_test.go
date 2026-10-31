@@ -60,6 +60,31 @@ type testStatsUpdater struct {
 
 func (t *testStatsUpdater) Update(s Stats) { t.last = s }
 
+// testListMetrics records the list sets published after each successful refresh.
+type testListMetrics struct {
+	recorded []map[string]int
+}
+
+func (m *testListMetrics) RecordLists(lists map[string]int) {
+	m.recorded = append(m.recorded, lists)
+}
+
+func TestRefresher_ListMetrics(t *testing.T) {
+	dl := &fakeDownloader{stats: okStats()}
+	r, _ := newTestRefresher(t, dl)
+
+	lm := &testListMetrics{}
+	r.SetListMetrics(lm)
+
+	require.NoError(t, r.RefreshNow(context.Background(), TriggerStartup))
+	require.Equal(t, []map[string]int{{"us_ofac": 3}}, lm.recorded)
+
+	// A failed refresh keeps the previously published list set.
+	dl.err = errors.New("origin down")
+	require.Error(t, r.RefreshNow(context.Background(), TriggerScheduled))
+	require.Len(t, lm.recorded, 1)
+}
+
 func newTestRefresher(t *testing.T, dl Downloader) (*Refresher, *testStatsUpdater) {
 	t.Helper()
 	up := &testStatsUpdater{}

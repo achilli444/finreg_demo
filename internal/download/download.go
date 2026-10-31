@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,14 @@ type downloader struct {
 	geocoder GeocodingService
 }
 
+// ErrNoListsConfigured is returned by RefreshAll when no source lists are
+// configured. Screening against an empty corpus returns "no match" for every
+// query, so the refresh (and startup) fails unless AllowEmptyIncludedLists or
+// ALLOW_EMPTY_INCLUDED_LISTS explicitly opts out.
+var ErrNoListsConfigured = errors.New("no lists configured: set Download.IncludedLists (or INCLUDED_LISTS) " +
+	"to at least us_ofac and us_non_sdn, or set AllowEmptyIncludedLists (ALLOW_EMPTY_INCLUDED_LISTS=true) " +
+	"to run without downloaded lists")
+
 // knownDownloadableLists is the set of standard built-in lists that watchman
 // can download.  It is used when validating IgnoredDownloadErrors entries.
 var knownDownloadableLists = []search.SourceList{
@@ -80,6 +89,21 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 	logger := dl.logger.Info().With(log.Fields{
 		"initial_data_directory": log.String(expandInitialDir(initialDataDirectory(dl.conf))),
 	})
+
+	// Track what lists have been requested and loaded. An empty request set is
+	// refused before any goroutines start: it would otherwise produce a
+	// successful refresh with zero entities.
+	requestedLists := getIncludedLists(dl.conf)
+	if len(requestedLists) == 0 {
+		if !allowEmptyIncludedLists(dl.conf) {
+			return stats, ErrNoListsConfigured
+		}
+		logger.Warn().Log("no lists have been configured, continuing because AllowEmptyIncludedLists is set")
+	}
+	if slices.Contains(requestedLists, search.SourceUSOFAC) && !slices.Contains(requestedLists, search.SourceUSNonSDN) {
+		logger.Warn().Logf("%s is configured without %s: OFAC Non-SDN (SSI and similar) entries will not be screened",
+			search.SourceUSOFAC, search.SourceUSNonSDN)
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 	preparedLists := make(chan preparedList, 10)
@@ -121,13 +145,8 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 	// Create a WaitGroup to track all producers
 	var producerWg sync.WaitGroup
 
-	// Track what lists have been requested and loaded
-	requestedLists := getIncludedLists(dl.conf)
 	var listsLoaded []search.SourceList
 
-	if len(requestedLists) == 0 {
-		logger.Warn().Log("no lists have been configured!")
-	}
 	logger.Info().Logf("starting list refresh of %v", requestedLists)
 
 	// OFAC Records
@@ -550,6 +569,16 @@ func errorOnEmptyList(conf Config) bool {
 		return strx.Yes(fromEnvStr)
 	}
 	return conf.ErrorOnEmptyList
+}
+
+// allowEmptyIncludedLists reports whether a refresh may proceed with no
+// configured lists. The ALLOW_EMPTY_INCLUDED_LISTS environment variable takes
+// precedence over the YAML-configured AllowEmptyIncludedLists field when it is set.
+func allowEmptyIncludedLists(conf Config) bool {
+	if fromEnvStr := strings.TrimSpace(os.Getenv("ALLOW_EMPTY_INCLUDED_LISTS")); fromEnvStr != "" {
+		return strx.Yes(fromEnvStr)
+	}
+	return conf.AllowEmptyIncludedLists
 }
 
 // geocodeEntities applies geocoding to all addresses in the given entities.

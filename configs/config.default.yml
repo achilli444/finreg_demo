@@ -29,7 +29,19 @@ Watchman:
 
     # Specify which lists to download and include in Watchman results
     # Examples: us_csl, us_ofac, us_non_sdn, us_fincen_311, uk_csl, eu_csl, un_csl
-    IncludedLists: []
+    #
+    # OFAC SDN (us_ofac) and Non-SDN (us_non_sdn) are included by default so the
+    # screening corpus always carries both. Lists named in the INCLUDED_LISTS
+    # environment variable are added to this set.
+    IncludedLists:
+      - us_ofac
+      - us_non_sdn
+
+    # A refresh fails when no lists are configured at all, because every search
+    # would then return "no match" against an empty corpus. Set this to true (or
+    # ALLOW_EMPTY_INCLUDED_LISTS=true) only for an instance that intentionally
+    # screens against ingested files alone.
+    AllowEmptyIncludedLists: false
 
     # Source-list names for which download or parse errors are suppressed.
     # A failed list named here will log a warning but will not cause a refresh error.

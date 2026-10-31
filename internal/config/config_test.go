@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/moov-io/base/log"
+	"github.com/moov-io/watchman/pkg/search"
 
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,9 @@ func TestLoadConfig(t *testing.T) {
 	require.Nil(t, conf.Servers.Pprof, "omitted Pprof keeps historical admin pprof behavior")
 	require.Equal(t, 12*time.Hour, conf.Download.RefreshInterval)
 	require.Empty(t, conf.Download.IgnoredDownloadErrors, "default config should have empty IgnoredDownloadErrors")
+	require.Equal(t, []search.SourceList{search.SourceUSOFAC, search.SourceUSNonSDN}, conf.Download.IncludedLists,
+		"default config must screen against OFAC SDN and Non-SDN")
+	require.False(t, conf.Download.AllowEmptyIncludedLists)
 	require.False(t, conf.Deepparse.Enabled, "deepparse is opt-in")
 	require.Equal(t, "http://localhost:8000", conf.Deepparse.BaseURL)
 	require.Equal(t, "bpemb-attention", conf.Deepparse.Model)
