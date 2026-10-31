@@ -123,6 +123,11 @@ func readJSONLines(r io.Reader, sourceList search.SourceList, opts ReadOptions) 
 
 		var rec SenzingRecord
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			// A read error (e.g. a decompression cap) truncates the final line; report
+			// the read error rather than the resulting JSON syntax error.
+			if scanErr := scanner.Err(); scanErr != nil {
+				return nil, fmt.Errorf("scanning senzing jsonl: %w", scanErr)
+			}
 			return nil, fmt.Errorf("parsing line %d: %w", lineNum, err)
 		}
 

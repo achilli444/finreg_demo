@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -547,6 +548,33 @@ func TestIngestFile_GzipBomb(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		require.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
 	})
+}
+
+func TestIngestFile_SenzingGzipBomb(t *testing.T) {
+	var plain bytes.Buffer
+	for i := 0; i < 20_000; i++ {
+		fmt.Fprintf(&plain, `{"RECORD_ID":"%d","NAME_FULL":"Jane Doe","RECORD_TYPE":"PERSON"}`+"\n", i)
+	}
+	plainLen := plain.Len()
+	fd := compress.GzipTestFile(t, &plain)
+	body, err := io.ReadAll(fd)
+	require.NoError(t, err)
+	require.Less(t, len(body), plainLen/5, "jsonl should compress well")
+
+	conf := ingest.Config{
+		Files:                map[string]ingest.File{"senzing-persons": {Format: ingest.FormatSenzing}},
+		MaxDecompressedBytes: 256 << 10, // 256 KiB, far below the inflated size
+	}
+	svc := ingest.NewService(log.NewTestLogger(), conf, &ingest.MockRepository{})
+	router := newIngestRouter(t, svc, conf)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v2/ingest/senzing-persons", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/gzip")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "decompressed request body exceeds")
 }
 
 func TestIngestFile_SenzingEntityCap(t *testing.T) {
