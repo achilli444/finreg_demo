@@ -111,8 +111,17 @@ func (h *staticHandler) serveGzipWASM(w http.ResponseWriter, r *http.Request, bo
 	}
 }
 
+// compressed returns the gzip body for name. Only files that exist in fsys get
+// a cache entry so request paths cannot grow the cache without bound.
 func (h *staticHandler) compressed(name string) ([]byte, error) {
 	if !isWASM(name) {
+		return nil, fs.ErrNotExist
+	}
+	info, err := fs.Stat(h.fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
 		return nil, fs.ErrNotExist
 	}
 	loaded, _ := h.caches.LoadOrStore(name, &wasmCache{})
@@ -123,10 +132,6 @@ func (h *staticHandler) compressed(name string) ([]byte, error) {
 	cache.once.Do(func() {
 		cache.body, cache.err = gzipFile(h.fsys, name)
 		if cache.err != nil || h.logger == nil {
-			return
-		}
-		info, err := fs.Stat(h.fsys, name)
-		if err != nil {
 			return
 		}
 		// Omit the request path so this log is not a log-injection source (CWE-117).
