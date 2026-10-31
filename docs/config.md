@@ -261,6 +261,8 @@ When enabled, Watchman will serve MCP endpoints at `/mcp` (streamable HTTP) in a
 
 `INGEST_MAX_BODY_BYTES` overrides the YAML value when it is a positive integer. See [File Dataset Ingestion](/watchman/ingest/) and [Network access](/watchman/network/).
 
+File types are declared under `Ingest.files`. The default config ships one: `rare-earth-business` (CSV, `type: business`), for entities that procure rare-earth minerals under the updated US Government rare-earth procurement regulations. Its CSV schema, seed file (`configs/ingest/rare-earth-entities.csv`) and upload / re-upload procedure are in [File Dataset Ingestion](/watchman/ingest/#rare-earth-business-profile). Ingested rows survive a restart only when `Database` is configured; `configs/config.postgres.yml` is an `APP_CONFIG` override that points at the `docker-compose.yml` PostgreSQL service.
+
 ### Included Lists
 
 Watchman integrates the following lists to help you maintain global compliance.

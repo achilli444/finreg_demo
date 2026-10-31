@@ -1,0 +1,15 @@
+record_id,entity_name,alt_name,id_type,id_number,street,city,state,zip,country,program,listed_on
+RE-2026-0001,Meridian Lanthanide Trading Co.,Meridian Lanthanide Trading Company,EIN,84-7719024,1200 Harbor Freight Rd,Long Beach,CA,90802,US,RARE-EARTH-PROC,2026-09-15
+RE-2026-0002,Kestrel Rare Earth Procurement LLC,Kestrel REP,EIN,61-5588301,455 Commerce Pkwy Ste 300,Reno,NV,89502,US,RARE-EARTH-PROC,2026-09-15
+RE-2026-0003,Baiyun Neodymium Sourcing Ltd.,Baiyun Nd Sourcing,USCC,91150200MA3DK9QX0F,88 Gangtie Dadao,Baotou,Inner Mongolia,014010,CN,RARE-EARTH-PROC,2026-09-15
+RE-2026-0003,Baiyun Neodymium Sourcing Ltd.,Baiyun Neodymium Supply Chain Co.,,,,,,,,RARE-EARTH-PROC,2026-09-15
+RE-2026-0004,Taunggyi Monazite Export House,TMEH Trading,REG,MYA-7721-RE,14 Bogyoke Aung San Rd,Taunggyi,Shan,06011,MM,RARE-EARTH-PROC,2026-09-15
+RE-2026-0005,Pahang Lynas-Adjacent Logistics Sdn Bhd,PLA Logistics,REG,202601044812,Lot 9 Jalan Gebeng 2/3,Kuantan,Pahang,26080,MY,RARE-EARTH-PROC,2026-09-15
+RE-2026-0006,Dysprosium Holdings S.A.,DyHold,LEI,5493001KJTIIGC8Y1R12,Rue du Rhone 14,Geneva,GE,1204,CH,RARE-EARTH-PROC,2026-10-01
+RE-2026-0007,Northern Yttrium Brokers Inc.,NYB Minerals,EIN,47-2210933,77 Water St Fl 12,New York,NY,10005,US,RARE-EARTH-PROC,2026-10-01
+RE-2026-0008,Ganzhou Heavy REE Consolidators Co. Ltd.,Ganzhou HREE Consolidators,USCC,91360700MA35XK2R7T,16 Keji Lu,Ganzhou,Jiangxi,341000,CN,RARE-EARTH-PROC,2026-10-01
+RE-2026-0008,Ganzhou Heavy REE Consolidators Co. Ltd.,Ganzhou Zhong Xitu Jicheng,,,,,,,,RARE-EARTH-PROC,2026-10-01
+RE-2026-0009,Volga Scandium Trade OOO,Volga Scandium,INN,7707412233,Ul. Tverskaya 9,Moscow,,125009,RU,RARE-EARTH-PROC,2026-10-01
+RE-2026-0010,Cerium Gulf Procurement FZE,CGP FZE,REG,JAFZA-18822,Jebel Ali Free Zone LOB 15,Dubai,,17000,AE,RARE-EARTH-PROC,2026-10-15
+RE-2026-0011,Praseodymium Partners Pty Ltd,PrP Minerals,ABN,51824753556,120 Collins St,Melbourne,VIC,3000,AU,RARE-EARTH-PROC,2026-10-15
+RE-2026-0012,Terbium Trade House B.V.,TTH Europe,KVK,77421981,Weena 505,Rotterdam,,3013 AL,NL,RARE-EARTH-PROC,2026-10-15

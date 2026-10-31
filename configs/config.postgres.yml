@@ -1,0 +1,14 @@
+# Override file: persist ingested rows (e.g. rare-earth-business) in PostgreSQL.
+# Matches the postgres service in docker-compose.yml.
+#
+#   docker compose up -d postgres
+#   APP_CONFIG=configs/config.postgres.yml ./bin/server
+#
+# Only the keys set here override configs/config.default.yml.
+Watchman:
+  Database:
+    DatabaseName: "watchman"
+    Postgres:
+      Address: "127.0.0.1:5432"
+      User: "watchman"
+      Password: "watchman"

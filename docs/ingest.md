@@ -190,6 +190,118 @@ GET /v2/search?source=fincen-person&type=person&name=John+Doe&minMatch=0.80
 
 All ingested rows of that source are in the search index. Cross-script embeddings still apply to downloaded lists; ingested files score with the same Jaro–Winkler / identifier matcher.
 
+## rare-earth-business profile
+
+`rare-earth-business` is a fileType shipped in `configs/config.default.yml` for entities that procure rare-earth minerals and are designated under the updated US Government rare-earth procurement regulations. It is screened during bank processing with `source=rare-earth-business`. No Go code is involved: the profile is YAML plus a CSV.
+
+### Mapping
+
+```yaml
+Watchman:
+  Ingest:
+    files:
+      rare-earth-business:
+        format: csv
+        mapping:
+          name:
+            column: entity_name
+          sourceID:
+            column: record_id
+          type:
+            default: "business"
+          business:
+            name:
+              column: entity_name
+            altNames:
+              columns: alt_name
+            governmentIDs:
+              type:
+                column: id_type
+              identifier:
+                column: id_number
+          addresses:
+            line1:
+              columns: street
+            city:
+              columns: city
+            state:
+              columns: state
+            postalCode:
+              columns: zip
+            country:
+              columns: country
+```
+
+`type` stays `business` (entity kind). `rare-earth-business` is the **source** name used in searches and in `/v2/listinfo`.
+
+### CSV schema
+
+Seed file: `configs/ingest/rare-earth-entities.csv` (fictitious placeholder rows; replace with the curated list, keeping these headers).
+
+| Header | Required | Indexed | Notes |
+| ------ | -------- | ------- | ----- |
+| `record_id` | yes | as `sourceID` | Stable per entity (e.g. `RE-2026-0001`). Re-uploads replace by this key, so never renumber. Repeat a `record_id` on an extra row with only `entity_name` + `alt_name` to add more aliases; rows with the same id are merged. |
+| `entity_name` | yes | name | Legal / primary name. |
+| `alt_name` | no | alt name | One alias per row. |
+| `id_type` | no | no | Informational for the curator (`EIN`, `USCC`, `LEI`, `REG`, …). The CSV reader stores the identifier only. |
+| `id_number` | no | identifier | Exact-match identifier. |
+| `street`, `city`, `state`, `zip`, `country` | no | address | `country` as ISO 3166-1 alpha-2. One address per row. |
+| `program`, `listed_on` | no | no | Provenance columns; unmapped headers are ignored by Watchman. |
+
+```csv
+record_id,entity_name,alt_name,id_type,id_number,street,city,state,zip,country,program,listed_on
+RE-2026-0001,Meridian Lanthanide Trading Co.,Meridian Lanthanide Trading Company,EIN,84-7719024,1200 Harbor Freight Rd,Long Beach,CA,90802,US,RARE-EARTH-PROC,2026-09-15
+RE-2026-0003,Baiyun Neodymium Sourcing Ltd.,Baiyun Nd Sourcing,USCC,91150200MA3DK9QX0F,88 Gangtie Dadao,Baotou,Inner Mongolia,014010,CN,RARE-EARTH-PROC,2026-09-15
+RE-2026-0003,Baiyun Neodymium Sourcing Ltd.,Baiyun Neodymium Supply Chain Co.,,,,,,,,RARE-EARTH-PROC,2026-09-15
+```
+
+Confirm the exact headers with whoever curates the list before changing the mapping; the headers in the file and the `column:`/`columns:` values in YAML must match exactly.
+
+### Persistence
+
+Without `Database`, the rows live only in the process that received the upload and are gone on restart. For bank processing, configure MySQL or PostgreSQL. `configs/config.postgres.yml` is a ready override that matches `docker-compose.yml`:
+
+```
+docker compose up -d postgres
+APP_CONFIG=configs/config.postgres.yml ./bin/server
+```
+
+With a database, every Watchman process sharing it loads `rare-earth-business` into its search index at startup, and a changed per-source checksum in `ingest_sources` is picked up on the next search by the other processes.
+
+### Upload, verify, screen
+
+```
+# upload (re-run this whenever the regulation / list changes)
+curl -sS -X POST --data-binary @configs/ingest/rare-earth-entities.csv \
+  "http://localhost:8084/v2/ingest/rare-earth-business" | jq '.fileType, (.entities | length)'
+
+# the source appears next to the downloaded lists with its row count and checksum
+curl -sS "http://localhost:8084/v2/listinfo" | jq '.lists["rare-earth-business"], .listHashes["rare-earth-business"]'
+
+# screen a counterparty; debug=true shows which fields drove the score
+curl -sS "http://localhost:8084/v2/search?source=rare-earth-business&type=business&name=Meridian+Lanthanide+Trading&minMatch=0.80&debug=true" | jq .
+```
+
+`scripts/ingest-rare-earth.sh [host] [csv]` runs the upload and the `/v2/listinfo` check.
+
+Re-upload procedure when the list changes:
+
+1. Update the CSV. Keep existing `record_id`s; add new ids for new designations; drop rows for delistings.
+2. `POST /v2/ingest/rare-earth-business` with the full file. An upload **replaces** the whole source (it is not a delta), so always send the complete list.
+3. Check `/v2/listinfo`: the row count matches the file and the `rare-earth-business` hash changed. Record that hash with the change ticket.
+4. Screen one added and one removed entity to confirm.
+
+The body cap is 32MiB (`Watchman.Ingest.MaxBodyBytes` / `INGEST_MAX_BODY_BYTES`). The endpoint is on the unauthenticated business API, so restrict network access to it (see [Network access](/watchman/network/)).
+
+### Screening guidance for bank processing
+
+- Always send `type=business` with `source=rare-earth-business`. A search with the wrong `type` only looks in that partition and returns nothing. If a person fileType is added later, screen it with `type=person`.
+- Keep `minMatch=0.80` as the production threshold.
+- Send the `address` you have. A name-only query is capped near 0.80 by the coverage penalty (the index rows carry an address and an identifier the query did not), so a close-but-not-exact name such as `Volga Scandium Trade` for `Volga Scandium Trade OOO` can land just under the threshold; the same query with the counterparty's address scores higher. Use `debug=true` to see the pieces.
+- `gov_*` query parameters do not boost matches against this profile today: the CSV reader stores the identifier without a type, and the exact-identifier matcher compares by type. Match on name + address, and keep `id_number` in the file for analysts.
+- Alias rows are matched (`Kestrel REP`, `Ganzhou HREE Consolidators` hit), but a transliteration that shares no tokens with the primary name scores lower; add such aliases as their own rows and check them with `debug=true`.
+- Watchman does not retain search queries. The calling bank-processing layer must log who was screened, when, the `rare-earth-business` hash from `/v2/listinfo` at that moment, the `minMatch` used, and the results. See [For compliance teams](/watchman/methodology/for-compliance/).
+
 ### Exporting Ingested Data
 
 `GET /v2/export/{fileType}` returns the entities previously ingested for a given fileType.
