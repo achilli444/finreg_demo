@@ -582,6 +582,9 @@ func (c *client) IngestFile(ctx context.Context, fileType string, file io.Reader
 	if err != nil {
 		return out, fmt.Errorf("creating ingest file request: %w", err)
 	}
+	// Watchman rejects CORS-safelisted media types (text/plain, form encodings) on ingest
+	// so browsers must preflight; the server sniffs gzip regardless of this header.
+	req.Header.Set("Content-Type", "application/octet-stream")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

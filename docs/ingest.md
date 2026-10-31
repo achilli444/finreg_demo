@@ -20,6 +20,12 @@ If you persist ingested rows in your own database as well, store [record-linkage
 
 Ingest is on the unauthenticated business API. Body cap is 32MiB by default (`413` if larger). See [Network access](/watchman/network/).
 
+Requests must carry a `Content-Type` that browsers cannot send without a CORS preflight. `text/csv`, `application/json`, `application/x-ndjson`, `application/gzip` and `application/octet-stream` are all fine; a missing header or `text/plain`, `application/x-www-form-urlencoded`, `multipart/form-data` returns `415`. Browser requests whose `Origin` is neither Watchman's own host nor on `Ingest.AllowedOrigins` return `403`. Together these stop a third-party web page from replacing a list through a visitor's browser (CSRF). Non-browser clients (`curl`, the Go client) are unaffected apart from setting `Content-Type`:
+
+```
+curl -s -X POST -H "Content-Type: text/csv" --data-binary @people.csv "http://localhost:8084/v2/ingest/fincen-person"
+```
+
 ### Path Parameters
 
 - `fileType` (required): The type of file being ingested, corresponding to a specific configuration in the Watchman YAML (e.g., `fincen-business` or `fincen-person`).
@@ -29,6 +35,8 @@ Ingest is on the unauthenticated business API. Body cap is 32MiB by default (`41
 The body is CSV (headers matching the YAML mapping) or Senzing JSON/JSONL when `format: senzing` is set.
 
 Oversized uploads return `413`. Override the 32MiB default with `Ingest.MaxBodyBytes` or `INGEST_MAX_BODY_BYTES`.
+
+Gzip bodies are detected and inflated automatically. The inflated size is capped at `Ingest.MaxDecompressedBytes` (default 8x `MaxBodyBytes`, 256MiB) and each upload at `Ingest.MaxEntities` rows (default 1,000,000); either limit returns `413` instead of letting a small, highly compressed body exhaust memory.
 
 ```yaml
   Ingest:
@@ -211,5 +219,7 @@ curl -s -H "Accept: senzing/jsonl" "http://localhost:8084/v2/export/fincen-perso
 ```
 
 The Go client exposes this as `client.ExportFile(ctx, "fincen-person")`.
+
+Export and ingest responses carry no `Access-Control-Allow-Origin` header unless the request's `Origin` is listed in `Ingest.AllowedOrigins` (or `INGEST_ALLOWED_ORIGINS`), in which case that origin is echoed back and `OPTIONS` preflights are answered. Browser pages on other origins cannot read exported lists.
 
 This is the read counterpart to `POST /v2/ingest/{fileType}` for backup, migration, or feeding downstream entity resolution systems.

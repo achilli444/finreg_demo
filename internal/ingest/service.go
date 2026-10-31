@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -42,6 +43,14 @@ type FileEntities struct {
 	FileType string
 	Entities []search.Entity[search.Value]
 }
+
+var (
+	// ErrDecompressedBodyTooLarge is returned when a gzip body expands past Config.MaxDecompressedBytes.
+	ErrDecompressedBodyTooLarge = errors.New("decompressed request body too large")
+
+	// ErrTooManyEntities is returned when an upload holds more rows than Config.MaxEntities.
+	ErrTooManyEntities = errors.New("too many entities in upload")
+)
 
 func (s *service) ReadEntitiesFromFile(ctx context.Context, name string, contents io.Reader) (FileEntities, error) {
 	var out FileEntities
@@ -86,7 +95,9 @@ func (s *service) ReadEntitiesFromFile(ctx context.Context, name string, content
 	return out, nil
 }
 
-func maybeDecompressBody(r io.Reader) io.Reader {
+// maybeDecompressBody transparently inflates gzip input. Inflated output is capped at
+// maxDecompressedBytes so a small, highly compressed body cannot exhaust memory.
+func maybeDecompressBody(r io.Reader, maxDecompressedBytes int64) io.Reader {
 	header := make([]byte, 10)
 	n, err := io.ReadFull(r, header)
 	if err != nil || n < 2 {
@@ -98,10 +109,30 @@ func maybeDecompressBody(r io.Reader) io.Reader {
 
 	gz, err := gzip.NewReader(io.MultiReader(bytes.NewReader(header), r))
 	if err == nil {
+		if maxDecompressedBytes > 0 {
+			return &cappedReader{r: gz, limit: maxDecompressedBytes}
+		}
 		return gz
 	}
 
 	return io.MultiReader(bytes.NewReader(header), r)
+}
+
+// cappedReader fails with ErrDecompressedBodyTooLarge once more than limit bytes
+// have been read. Unlike io.LimitReader it never silently truncates the input.
+type cappedReader struct {
+	r     io.Reader
+	limit int64
+	read  int64
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += int64(n)
+	if c.read > c.limit {
+		return 0, fmt.Errorf("gzip body expands past %d bytes: %w", c.limit, ErrDecompressedBodyTooLarge)
+	}
+	return n, err
 }
 
 func (s *service) readEntitiesFromCSVFile(ctx context.Context, name string, schema File, contents io.Reader) (FileEntities, error) {
@@ -109,7 +140,8 @@ func (s *service) readEntitiesFromCSVFile(ctx context.Context, name string, sche
 		FileType: name,
 	}
 
-	r := csv.NewReader(maybeDecompressBody(contents))
+	r := csv.NewReader(maybeDecompressBody(contents, s.conf.maxDecompressedBytes()))
+	maxEntities := s.conf.maxEntities()
 
 	headers, err := r.Read()
 	if err != nil {
@@ -180,6 +212,9 @@ func (s *service) readEntitiesFromCSVFile(ctx context.Context, name string, sche
 		entity.Addresses = readAddresses(headers, schema.Mapping.Addresses, row)
 
 		out.Entities = append(out.Entities, entity.Normalize())
+		if len(out.Entities) > maxEntities {
+			return out, fmt.Errorf("csv has more than %d rows: %w", maxEntities, ErrTooManyEntities)
+		}
 	}
 
 	return out, nil
@@ -338,8 +373,13 @@ func (s *service) readEntitiesFromSenzingFile(ctx context.Context, name string, 
 
 	sourceList := search.SourceList(name)
 
-	entities, err := senzing.ReadEntities(maybeDecompressBody(contents), sourceList)
+	entities, err := senzing.ReadEntitiesWithOptions(maybeDecompressBody(contents, s.conf.maxDecompressedBytes()), sourceList, senzing.ReadOptions{
+		MaxEntities: s.conf.maxEntities(),
+	})
 	if err != nil {
+		if errors.Is(err, senzing.ErrTooManyEntities) {
+			err = fmt.Errorf("%v: %w", err, ErrTooManyEntities)
+		}
 		return out, fmt.Errorf("reading senzing entities: %w", err)
 	}
 

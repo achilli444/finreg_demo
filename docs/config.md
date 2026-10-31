@@ -256,10 +256,14 @@ When enabled, Watchman will serve MCP endpoints at `/mcp` (streamable HTTP) in a
 
 ```yaml
   Ingest:
-    MaxBodyBytes: 33554432 # 32MiB; oversized uploads return HTTP 413
+    MaxBodyBytes: 33554432          # 32MiB; oversized uploads return HTTP 413
+    MaxDecompressedBytes: 268435456 # 256MiB; cap on inflated gzip bodies (default 8x MaxBodyBytes)
+    MaxEntities: 1000000            # rows per upload; more returns HTTP 413
+    AllowedOrigins:                 # browser origins allowed to call ingest/export cross-origin
+      - https://ops.example.com
 ```
 
-`INGEST_MAX_BODY_BYTES` overrides the YAML value when it is a positive integer. See [File Dataset Ingestion](/watchman/ingest/) and [Network access](/watchman/network/).
+`INGEST_MAX_BODY_BYTES`, `INGEST_MAX_DECOMPRESSED_BYTES` and `INGEST_MAX_ENTITIES` override the YAML values when they are positive integers; `INGEST_ALLOWED_ORIGINS` is a comma separated list. Uploads must send a non-form `Content-Type` (`text/csv`, `application/json`, `application/gzip`, ...) and browser requests from an origin not on the allowlist are rejected with `403`; no wildcard `Access-Control-Allow-Origin` is sent on ingest or export. See [File Dataset Ingestion](/watchman/ingest/) and [Network access](/watchman/network/).
 
 ### Included Lists
 
@@ -292,6 +296,9 @@ The US CSL Nonproliferation Sanctions source code is `ACN` (Bureau of Arms Contr
 | `HTTPS_KEY_FILE`               | Filepath of a private key matching the leaf certificate from `HTTPS_CERT_FILE`.                                                      | Empty                                       |
 | `LOG_FORMAT`                   | Format for logging lines to be written as.                                                                                           | Options: `json`, `plain` - Default: `plain` |
 | `INGEST_MAX_BODY_BYTES`        | Maximum `POST /v2/ingest/{fileType}` request body size in bytes. Oversized uploads return HTTP 413.                                  | `33554432` (32MiB)                          |
+| `INGEST_MAX_DECOMPRESSED_BYTES` | Maximum size a gzip ingest body may inflate to. Larger bodies return HTTP 413.                                                      | 8x `INGEST_MAX_BODY_BYTES` (256MiB)         |
+| `INGEST_MAX_ENTITIES`          | Maximum rows per ingest upload. Larger uploads return HTTP 413.                                                                      | `1000000`                                   |
+| `INGEST_ALLOWED_ORIGINS`       | Comma separated browser origins allowed to call `/v2/ingest` and `/v2/export` cross-origin. Empty disables cross-origin browser access. | Empty                                       |
 
 ### TF-IDF Configuration
 

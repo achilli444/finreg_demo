@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -17,6 +18,25 @@ import (
 // The format is auto-detected based on the first non-whitespace character.
 // Uses streaming to handle large files without loading everything into memory.
 func ReadEntities(r io.Reader, sourceList search.SourceList) ([]search.Entity[search.Value], error) {
+	return ReadEntitiesWithOptions(r, sourceList, ReadOptions{})
+}
+
+// ErrTooManyEntities is returned when the input holds more records than ReadOptions.MaxEntities allows.
+var ErrTooManyEntities = errors.New("too many entities")
+
+// ReadOptions controls how much input ReadEntitiesWithOptions accepts.
+type ReadOptions struct {
+	// MaxEntities stops reading once more than this many records have been parsed.
+	// Zero or negative means no limit.
+	MaxEntities int
+}
+
+func (opts ReadOptions) exceeded(count int) bool {
+	return opts.MaxEntities > 0 && count > opts.MaxEntities
+}
+
+// ReadEntitiesWithOptions is ReadEntities with a cap on the number of records read.
+func ReadEntitiesWithOptions(r io.Reader, sourceList search.SourceList, opts ReadOptions) ([]search.Entity[search.Value], error) {
 	br := bufio.NewReader(r)
 
 	// Find the first non-whitespace character to detect format
@@ -42,12 +62,12 @@ func ReadEntities(r io.Reader, sourceList search.SourceList) ([]search.Entity[se
 
 	// Detect format: JSON Array starts with '[', JSON Lines starts with '{'
 	if firstChar == '[' {
-		return readJSONArray(br, sourceList)
+		return readJSONArray(br, sourceList, opts)
 	}
-	return readJSONLines(br, sourceList)
+	return readJSONLines(br, sourceList, opts)
 }
 
-func readJSONArray(r io.Reader, sourceList search.SourceList) ([]search.Entity[search.Value], error) {
+func readJSONArray(r io.Reader, sourceList search.SourceList, opts ReadOptions) ([]search.Entity[search.Value], error) {
 	var entities []search.Entity[search.Value]
 	decoder := json.NewDecoder(r)
 
@@ -72,6 +92,9 @@ func readJSONArray(r io.Reader, sourceList search.SourceList) ([]search.Entity[s
 			return nil, fmt.Errorf("converting record %s: %w", rec.RecordID, err)
 		}
 		entities = append(entities, entity)
+		if opts.exceeded(len(entities)) {
+			return nil, fmt.Errorf("senzing json array has more than %d records: %w", opts.MaxEntities, ErrTooManyEntities)
+		}
 	}
 
 	// Read closing bracket
@@ -82,7 +105,7 @@ func readJSONArray(r io.Reader, sourceList search.SourceList) ([]search.Entity[s
 	return entities, nil
 }
 
-func readJSONLines(r io.Reader, sourceList search.SourceList) ([]search.Entity[search.Value], error) {
+func readJSONLines(r io.Reader, sourceList search.SourceList, opts ReadOptions) ([]search.Entity[search.Value], error) {
 	var entities []search.Entity[search.Value]
 	scanner := bufio.NewScanner(r)
 
@@ -108,6 +131,9 @@ func readJSONLines(r io.Reader, sourceList search.SourceList) ([]search.Entity[s
 			return nil, fmt.Errorf("converting record at line %d: %w", lineNum, err)
 		}
 		entities = append(entities, entity)
+		if opts.exceeded(len(entities)) {
+			return nil, fmt.Errorf("senzing jsonl has more than %d records: %w", opts.MaxEntities, ErrTooManyEntities)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
