@@ -236,12 +236,31 @@ type SearchResponse struct {
 	Query Entity[Value] `json:"query"`
 
 	Entities []SearchedEntity[Value] `json:"entities"`
+
+	// ListInfo identifies the list versions that produced this response so a
+	// reviewer can later prove which data a screening decision was made against.
+	ListInfo *ListInfo `json:"listInfo,omitempty"`
+}
+
+// ListInfo describes the sanctions data that was indexed when a search ran.
+// It mirrors GET /v2/listinfo and is attached to every search response.
+type ListInfo struct {
+	// Lists maps each loaded list name (e.g. "us_ofac", "eu_csl") to its entity count.
+	Lists map[string]int `json:"lists"`
+	// ListHashes maps each list name to a hash of the source file(s) it was built from.
+	ListHashes map[string]string `json:"listHashes"`
+	// StartedAt / EndedAt bound the refresh that produced the index in use.
+	StartedAt time.Time `json:"startedAt"`
+	EndedAt   time.Time `json:"endedAt"`
+	// Version is the Watchman build that produced the result.
+	Version string `json:"version"`
 }
 
 func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		Query    Entity[Value]           `json:"query"`
 		Entities []SearchedEntity[Value] `json:"entities"`
+		ListInfo *ListInfo               `json:"listInfo"`
 		Error    string                  `json:"error"`
 	}
 	err := json.Unmarshal(data, &aux)
@@ -254,6 +273,7 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 
 	s.Query = aux.Query
 	s.Entities = aux.Entities
+	s.ListInfo = aux.ListInfo
 
 	return nil
 }

@@ -146,3 +146,47 @@ func TestRefresher_TriggerAsync(t *testing.T) {
 
 	require.Equal(t, TriggerManual, r.Status().Trigger)
 }
+
+func TestRefresher_StalenessTracking(t *testing.T) {
+	dl := &fakeDownloader{stats: okStats()}
+	r, _ := newTestRefresher(t, dl)
+	r.SetMaxStaleness(time.Hour)
+
+	// Nothing has succeeded yet: stale.
+	require.True(t, r.Status().Stale)
+
+	require.NoError(t, r.RefreshNow(context.Background(), TriggerStartup))
+	st := r.Status()
+	require.Equal(t, StateSucceeded, st.State)
+	require.NotNil(t, st.LastSuccessAt)
+	require.Equal(t, 0, st.ConsecutiveFailures)
+	require.False(t, st.Stale)
+	require.Equal(t, "1h0m0s", st.MaxStaleness)
+	lastSuccess := *st.LastSuccessAt
+
+	// Two failures in a row keep the last success time and count up.
+	dl.err = errors.New("origin down")
+	require.Error(t, r.RefreshNow(context.Background(), TriggerScheduled))
+	require.Error(t, r.RefreshNow(context.Background(), TriggerScheduled))
+	st = r.Status()
+	require.Equal(t, StateFailed, st.State)
+	require.Equal(t, "origin down", st.LastError)
+	require.Equal(t, 2, st.ConsecutiveFailures)
+	require.Equal(t, lastSuccess, *st.LastSuccessAt)
+	require.False(t, st.Stale, "within max staleness the data is old but not yet stale")
+
+	// Once the last success is older than MaxStaleness the status flags it.
+	old := lastSuccess.Add(-2 * time.Hour)
+	r.mu.Lock()
+	r.status.LastSuccessAt = &old
+	r.mu.Unlock()
+	require.True(t, r.Status().Stale)
+	require.True(t, r.IsStale())
+
+	// A later success clears everything.
+	dl.err = nil
+	require.NoError(t, r.RefreshNow(context.Background(), TriggerManual))
+	st = r.Status()
+	require.Equal(t, 0, st.ConsecutiveFailures)
+	require.False(t, st.Stale)
+}

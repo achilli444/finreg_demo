@@ -2,7 +2,10 @@ package download_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/moov-io/base/log"
@@ -54,4 +57,33 @@ func TestClient_DownloadFile(t *testing.T) {
 
 	require.NoError(t, files["client"].Close())
 	require.NoError(t, files["test"].Close())
+}
+
+func TestClient_GetFiles_PartialFailureIsAnError(t *testing.T) {
+	logger := log.NewTestLogger()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/good.csv") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok\n"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	dl := download.New(logger, server.Client())
+	require.NotNil(t, dl)
+
+	dir := t.TempDir()
+	namesAndSources := map[string]string{
+		"good.csv":    server.URL + "/good.csv",
+		"missing.csv": server.URL + "/missing.csv",
+	}
+
+	files, err := dl.GetFiles(context.Background(), dir, namesAndSources)
+	require.Error(t, err)
+	require.Nil(t, files, "a partial file set must not be returned as success")
+	require.Contains(t, err.Error(), "1 of 2 files failed to download")
+	require.Contains(t, err.Error(), "missing.csv")
 }

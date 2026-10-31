@@ -113,6 +113,7 @@ func (s *Server) HandleSearchEntities(ctx context.Context, req *mcp.CallToolRequ
 	resp := pubsearch.SearchResponse{
 		Query:    searchReq,
 		Entities: entities,
+		ListInfo: s.service.LatestStats().ListInfo(),
 	}
 
 	responseJSON, err := json.Marshal(resp)

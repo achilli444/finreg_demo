@@ -7,7 +7,12 @@ import (
 )
 
 type Config struct {
-	RefreshInterval      time.Duration
+	RefreshInterval time.Duration
+
+	// MaxStaleness is how old the last successful refresh may be before the data is
+	// reported as stale (GET /v2/data/refresh "stale": true, error log on every
+	// scheduled tick, watchman_data_stale metric). Zero defaults to 2x RefreshInterval.
+	MaxStaleness         time.Duration
 	InitialDataDirectory string
 
 	// ErrorOnEmptyList determines whether Watchman should raise an error when a list

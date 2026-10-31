@@ -273,11 +273,31 @@ func TestParseRemarks(t *testing.T) {
 				},
 				{
 					EntityName: "CORP B",
-					Type:       "Subsidiary Of",
+					Type:       "Controlled By",
 				},
 				{
 					EntityName: "CORP C",
-					Type:       "Subsidiary Of",
+					Type:       "Owned By",
+				},
+			},
+			wantSanctions:  nil,
+			wantHistorical: nil,
+			wantTitles:     nil,
+		},
+		{
+			name: "ownership percentage preserved when stated",
+			remarks: []string{
+				"Owned By: HOLDING CO (51%); Linked To: CORP D",
+			},
+			wantAffiliations: []search.Affiliation{
+				{
+					EntityName: "CORP D",
+					Type:       "Linked To",
+				},
+				{
+					EntityName:       "HOLDING CO (51%)",
+					Type:             "Owned By",
+					OwnershipPercent: 51,
 				},
 			},
 			wantSanctions:  nil,

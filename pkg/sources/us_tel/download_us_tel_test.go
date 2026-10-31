@@ -96,6 +96,6 @@ func TestUSTelDownload_badURL(t *testing.T) {
 	publicUSTelDownloadUrl = "file:///nonexistent/path"
 
 	files, err := DownloadUsTel(context.Background(), log.NewNopLogger(), "")
-	require.NoError(t, err)
+	require.Error(t, err, "a failed download must not look like an empty list")
 	require.Empty(t, files)
 }

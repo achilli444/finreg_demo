@@ -118,3 +118,19 @@ Watchman:
       L1MaxSize: 10000      # In-memory LRU cache size
       L1TTL: "24h"          # TTL for L1 cache entries
       L2Enabled: true       # Persist to database (requires Database config)
+
+  # Screening audit log: one append-only JSON Lines record per search (HTTP and
+  # MCP) with the input (or its hash), effective minMatch/algorithm, list hashes
+  # and refresh timestamps, every returned hit and its score. Required for
+  # BSA/EU/UK record-keeping; see docs/compliance.md and docs/config.md.
+  Audit:
+    Enabled: true
+    # Empty writes events to the process log (stdout) for SIEM shipping.
+    Directory: ""
+    # Daily files older than this are deleted. 0 keeps them forever.
+    # BSA/AML expects >= 5 years (1825 days); GDPR expects a finite, documented period.
+    RetentionDays: 1825
+    # Write the full query entity (customer PII). false keeps only a SHA-256 hash.
+    IncludeQuery: true
+    # Write per-field score pieces when the search computed them (debug / includeDetails).
+    IncludeDetails: true

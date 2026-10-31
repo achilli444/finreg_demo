@@ -6,6 +6,7 @@ package config
 
 import (
 	watchman "github.com/moov-io/watchman"
+	"github.com/moov-io/watchman/internal/audit"
 	"github.com/moov-io/watchman/internal/deepparse"
 	"github.com/moov-io/watchman/internal/download"
 	"github.com/moov-io/watchman/internal/geocoding"
@@ -42,6 +43,9 @@ type Config struct {
 	Ingest ingest.Config
 
 	MCP MCPConfig
+
+	// Audit emits one structured record per screening request (docs/compliance.md).
+	Audit audit.Config
 }
 
 type ServerConfig struct {

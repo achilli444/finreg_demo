@@ -46,6 +46,8 @@ A matching tax number, company registration, email, or phone **raises** the blen
 
 If both records have the same ID type (and country, when both set) with **different** values, the blended score is multiplied by `ID_CONFLICT_PENALTY_MULTIPLIER` (default 0.70). A missing ID on one side is not a conflict. A matching passport or IMO still scores 1.0 before this penalty.
 
+This penalty can take an otherwise strong name match below a screening threshold: a 0.95 name-only match with a conflicting national ID scores 0.665, under the 0.80 default. That is deliberate — a different passport number is strong evidence of a different person — but when the customer-supplied identifier may be wrong, use one of these override paths: set `ID_CONFLICT_PENALTY_MULTIPLIER=1` to disable the penalty and review every conflict; re-query **without** the identifier (a conflict needs an ID on both sides); or send `debug=true` and queue hits whose pieces show `idConflict`. A differing date of birth is **not** an identifier conflict; it lowers the supporting-info piece only. There is no SWIFT/BIC field; BICs identify institutions rather than persons and are not unique identifiers here.
+
 If both prepared names contain a numeral (a digit token, roman I–XII, or a spelled one–twenty) and those numerals disagree, the blended score is multiplied by `NAME_NUMERAL_CONFLICT_PENALTY_MULTIPLIER` (default 0.70). `Hoshikaze Maru No. 8` vs `No. 6` is a conflict; `NS LEADER` vs `NS LEADER II` is not, because one side has no numeral. A matching IMO still scores 1.0 before this penalty.
 
 ### Entity type
@@ -107,6 +109,8 @@ The API returns a score in `[0, 1]`. `minMatch` is a **policy** cutoff, not a hi
 | Screening default | 0.80 | Production hit generation with high precision |
 | High recall | ~0.59 | When missing a designation is costlier than extra review |
 | Enhanced due diligence | 0.70–0.84 | Broader queues |
+
+The engine's own default when `minMatch` is omitted is **0.0**: the top `limit` candidates are returned regardless of score, and the caller applies the policy cutoff. Pass `minMatch` explicitly; the audit log records the value used.
 
 On 472,477 analyst-judged OpenSanctions subject pairs, Jaro–Winkler at 0.80 had precision 0.986 and recall 0.689. Dropping the cutoff to 0.59 raised recall to 0.920 at precision 0.945. With cross-script embeddings (hybrid) at 0.80, precision was 0.946 and recall 0.815.
 

@@ -241,8 +241,17 @@ func (a Address) Format() string {
 
 type Affiliation struct {
 	EntityName string `json:"entityName"`
-	Type       string `json:"type"` // e.g., "Linked To", "Subsidiary Of", "Owned By"
-	Details    string `json:"details,omitempty"`
+	// Type is the relationship as stated by the list publisher, e.g. "Linked To",
+	// "Subsidiary Of", "Owned By", "Controlled By". Owned/Controlled By are kept
+	// distinct from Subsidiary Of because they are the inputs to OFAC 50% rule and
+	// EU/UK ownership-and-control analysis.
+	Type    string `json:"type"`
+	Details string `json:"details,omitempty"`
+
+	// OwnershipPercent is the publisher-stated ownership stake (0-100) when a source
+	// provides one. Zero means "not stated". Sanctions list remarks very rarely carry
+	// percentages, so callers must not treat zero as "below 50%": see docs/compliance.md.
+	OwnershipPercent float64 `json:"ownershipPercent,omitempty"`
 }
 
 type SanctionsInfo struct {

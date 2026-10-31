@@ -7,6 +7,17 @@ import (
 	"github.com/moov-io/watchman/pkg/search"
 )
 
+// ListInfo returns the list-version metadata attached to search responses.
+func (s Stats) ListInfo() *search.ListInfo {
+	return &search.ListInfo{
+		Lists:      s.Lists,
+		ListHashes: s.ListHashes,
+		StartedAt:  s.StartedAt,
+		EndedAt:    s.EndedAt,
+		Version:    s.Version,
+	}
+}
+
 type Stats struct {
 	Entities []search.Entity[search.Value] `json:"-"`
 

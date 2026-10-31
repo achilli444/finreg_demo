@@ -24,7 +24,7 @@ Screening is **`GET /v2/search`**. There is no JSON POST body on this path.
 GET /v2/search?type=person&name=Dmitry+Khoroshev&gov_passport=RU:2018278055&minMatch=0.80&limit=1
 ```
 
-Wait until `GET /v2/listinfo` shows `us_ofac` (or your lists) before the first search. A matching passport scores **1.0**; the same name without an ID is below 0.80.
+Wait until `GET /v2/listinfo` shows `us_ofac` (or your lists) before the first search. Every response includes `listInfo` (per-list entity counts and source-file hashes, refresh `startedAt`/`endedAt`, Watchman version) so a reviewer can prove which list publication produced the result. When `minMatch` is omitted the default is `0.0` (the top `limit` candidates are returned); pass it explicitly. A matching passport scores **1.0**; the same name without an ID is below 0.80.
 
 ### Senzing Formatting
 

@@ -109,8 +109,8 @@ func TestUNSanctionsListDownload_badURL(t *testing.T) {
 	unSanctionsListURL = "file:///nonexistent/path"
 
 	files, err := DownloadSanctionsList_UN(context.Background(), log.NewNopLogger(), "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected a download error for a bad URL, got nil")
 	}
 	if len(files) != 0 {
 		t.Errorf("expected no files for bad URL, got %d", len(files))
