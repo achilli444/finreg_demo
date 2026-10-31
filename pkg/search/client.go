@@ -170,6 +170,12 @@ type RefreshStatusResponse struct {
 	Duration   string     `json:"duration,omitempty"`
 
 	LastError string `json:"lastError,omitempty"`
+
+	// IgnoredErrors maps each list in IgnoredDownloadErrors that failed during the
+	// refresh to its error; State is "degraded" when it is non-empty.
+	IgnoredErrors map[string]string `json:"ignoredErrors,omitempty"`
+	// CarriedForwardLists names failed lists whose previously loaded data was kept.
+	CarriedForwardLists []string `json:"carriedForwardLists,omitempty"`
 }
 
 // RefreshStatus retrieves the status of the current or most recent data refresh.

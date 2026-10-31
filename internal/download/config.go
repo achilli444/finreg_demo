@@ -28,6 +28,10 @@ type Config struct {
 	// IgnoredDownloadErrors lists source-list names for which download or parse
 	// errors are suppressed during RefreshAll. A failed list that is named here
 	// will produce a warning log but will not cause RefreshAll to return an error.
+	// The failure is recorded in Stats.IgnoredErrors; the Refresher keeps the
+	// previously indexed data for that list, reports the refresh as "degraded"
+	// on GET /v2/data/refresh and increments the
+	// watchman_data_refresh_ignored_list_errors_total metric.
 	//
 	// Valid values are the standard known downloadable lists plus any source-list
 	// names configured in OpenSanctions.Lists or Senzing.

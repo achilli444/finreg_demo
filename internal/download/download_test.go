@@ -9,6 +9,7 @@ import (
 	"github.com/moov-io/base/log"
 	"github.com/moov-io/watchman/internal/download"
 	"github.com/moov-io/watchman/internal/geocoding/geocodetest"
+	"github.com/moov-io/watchman/internal/index"
 	"github.com/moov-io/watchman/pkg/search"
 
 	"github.com/stretchr/testify/require"
@@ -116,8 +117,9 @@ func TestDownloader_RefreshAll_IgnoresConfiguredDownloadError(t *testing.T) {
 	require.NoError(t, err, "error for configured IgnoredDownloadErrors list should be suppressed")
 	require.NotNil(t, stats)
 
-	// The failing list must not appear in stats.
+	// The failing list must not appear in stats, but its failure must be recorded.
 	require.Empty(t, stats.Lists["senzing-bad-ignored"])
+	require.Contains(t, stats.IgnoredErrors, "senzing-bad-ignored")
 
 	// The successful OFAC list must still be loaded.
 	ofacName := string(search.SourceUSOFAC)
@@ -171,8 +173,10 @@ func TestDownloader_RefreshAll_IgnoredDownloadError_MixedBatch(t *testing.T) {
 	require.NoError(t, err, "ignored list download failure must not fail the refresh")
 	require.NotNil(t, stats)
 
-	// The ignored list must not appear.
+	// The ignored list must not appear, but its failure must be recorded.
 	require.Empty(t, stats.Lists[string(ignoredList)])
+	require.Contains(t, stats.IgnoredErrors, string(ignoredList))
+	require.NotContains(t, stats.IgnoredErrors, string(goodList))
 
 	// The non-ignored list must have loaded successfully.
 	require.Equal(t, 3, stats.Lists[string(goodList)], "non-ignored list should load")
@@ -222,8 +226,60 @@ func TestDownloader_RefreshAll_IgnoredDownloadError_EmptySenzingList(t *testing.
 	require.NoError(t, err, "empty list error for ignored list should be suppressed")
 	require.NotNil(t, stats)
 
-	// The ignored empty list must not appear in stats.
+	// The ignored empty list must not appear in stats, but its failure must be recorded.
 	require.Empty(t, stats.Lists[string(listName)])
+	require.Contains(t, stats.IgnoredErrors, string(listName))
+}
+
+// TestRefresher_IgnoredListKeepsIndexedData drives the real index through two
+// refreshes: the first loads a Senzing list, the second fails that list while it
+// is in IgnoredDownloadErrors. The previously indexed entities must stay
+// searchable and the refresh must report degraded, not succeeded.
+func TestRefresher_IgnoredListKeepsIndexedData(t *testing.T) {
+	logger := log.NewTestLogger()
+	ctx := context.Background()
+
+	goodFile, err := filepath.Abs(filepath.Join("..", "..", "pkg", "sources", "senzing", "testdata", "persons.jsonl"))
+	require.NoError(t, err)
+
+	const list search.SourceList = "senzing-flaky"
+
+	indexedLists := index.NewLists(nil)
+
+	goodDL, err := download.NewDownloader(logger, download.Config{
+		Senzing: []download.SenzingList{{SourceList: list, Location: "file://" + goodFile}},
+	}, nil)
+	require.NoError(t, err)
+
+	first := download.NewRefresher(ctx, logger, goodDL, indexedLists, nil)
+	require.NoError(t, first.RefreshNow(ctx, download.TriggerStartup))
+	require.Equal(t, download.StateSucceeded, first.Status().State)
+
+	before := indexedLists.LatestStats()
+	require.Equal(t, 3, before.Lists[string(list)])
+	require.NotEmpty(t, before.ListHashes[string(list)])
+
+	badDL, err := download.NewDownloader(logger, download.Config{
+		Senzing:               []download.SenzingList{{SourceList: list, Location: "file:///nonexistent/path.jsonl"}},
+		IgnoredDownloadErrors: []search.SourceList{list},
+	}, nil)
+	require.NoError(t, err)
+
+	second := download.NewRefresher(ctx, logger, badDL, indexedLists, nil)
+	require.NoError(t, second.RefreshNow(ctx, download.TriggerScheduled))
+
+	st := second.Status()
+	require.Equal(t, download.StateDegraded, st.State)
+	require.Contains(t, st.IgnoredErrors, string(list))
+	require.Equal(t, []string{string(list)}, st.CarriedForwardLists)
+
+	after := indexedLists.LatestStats()
+	require.Equal(t, 3, after.Lists[string(list)], "entities from the previous refresh must be kept")
+	require.Equal(t, before.ListHashes[string(list)], after.ListHashes[string(list)])
+
+	entities, err := indexedLists.GetEntities(ctx, list)
+	require.NoError(t, err)
+	require.Len(t, entities, 3)
 }
 
 // TestDownloader_RefreshAll_DoesNotIgnoreUnconfiguredEmptySenzingList verifies

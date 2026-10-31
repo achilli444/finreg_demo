@@ -33,6 +33,9 @@ Watchman:
 
     # Source-list names for which download or parse errors are suppressed.
     # A failed list named here will log a warning but will not cause a refresh error.
+    # The previously loaded data for that list is kept, GET /v2/data/refresh reports
+    # state "degraded" with the per-list error, and the
+    # watchman_data_refresh_ignored_list_errors_total metric is incremented.
     # Examples: us_csl, us_ofac, eu_csl
     IgnoredDownloadErrors: []
 

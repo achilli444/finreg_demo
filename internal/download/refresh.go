@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/moov-io/base/log"
 	"github.com/moov-io/base/telemetry"
+	"github.com/moov-io/watchman/pkg/search"
 )
 
 // Trigger labels describe what initiated a refresh.
@@ -30,6 +32,11 @@ const (
 	StateRunning   State = "running"
 	StateSucceeded State = "succeeded"
 	StateFailed    State = "failed"
+	// StateDegraded means the refresh completed but at least one list named in
+	// IgnoredDownloadErrors failed to load. Previously indexed data for those
+	// lists was carried forward when available; see IgnoredErrors and
+	// CarriedForwardLists on Status.
+	StateDegraded State = "degraded"
 )
 
 // Status is a snapshot of the current or most recent data refresh.
@@ -41,11 +48,28 @@ type Status struct {
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 	Duration   string     `json:"duration,omitempty"`
 	LastError  string     `json:"lastError,omitempty"`
+
+	// IgnoredErrors maps each list in IgnoredDownloadErrors that failed during
+	// this refresh to its error. Non-empty IgnoredErrors sets State to degraded.
+	IgnoredErrors map[string]string `json:"ignoredErrors,omitempty"`
+	// CarriedForwardLists names the failed lists whose previously indexed
+	// entities and hash were kept instead of being dropped from the index.
+	CarriedForwardLists []string `json:"carriedForwardLists,omitempty"`
 }
 
-// statsUpdater receives download stats after a successful refresh (e.g. index.Lists).
+// statsUpdater receives download stats after a successful refresh (e.g. index.Lists)
+// and exposes the currently indexed generation so a failed-but-ignored list can
+// be carried forward instead of removed.
 type statsUpdater interface {
 	Update(Stats)
+	LatestStats() Stats
+	GetEntities(ctx context.Context, source search.SourceList) ([]search.Entity[search.Value], error)
+}
+
+// refreshResult summarizes the degraded-list outcome of one refresh.
+type refreshResult struct {
+	ignoredErrors  map[string]string
+	carriedForward []string
 }
 
 // embeddingRebuilder rebuilds optional embedding indexes after refresh.
@@ -84,8 +108,8 @@ func (r *Refresher) RefreshNow(ctx context.Context, trigger string) error {
 	if !ok {
 		return ErrAlreadyRunning
 	}
-	err := r.run(ctx)
-	r.finish(start, err)
+	res, err := r.run(ctx)
+	r.finish(start, res, err)
 	return err
 }
 
@@ -96,8 +120,8 @@ func (r *Refresher) TriggerAsync(trigger string) bool {
 		return false
 	}
 	go func() {
-		err := r.run(r.baseCtx)
-		r.finish(start, err)
+		res, err := r.run(r.baseCtx)
+		r.finish(start, res, err)
 		if err != nil {
 			r.logger.Error().LogErrorf("background %s data refresh failed: %v", trigger, err)
 		}
@@ -128,29 +152,47 @@ func (r *Refresher) start(trigger string) (time.Time, bool) {
 	return now, true
 }
 
-func (r *Refresher) finish(start time.Time, err error) {
+func (r *Refresher) finish(start time.Time, res refreshResult, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	end := time.Now().UTC()
 	r.running = false
 	r.status.FinishedAt = &end
 	r.status.Duration = end.Sub(start).String()
+	r.status.IgnoredErrors = nil
+	r.status.CarriedForwardLists = nil
 	if err != nil {
 		r.status.State = StateFailed
 		r.status.LastError = err.Error()
+		refreshDegraded.Set(0)
+		return
+	}
+	r.status.LastError = ""
+	if len(res.ignoredErrors) > 0 {
+		r.status.State = StateDegraded
+		r.status.IgnoredErrors = res.ignoredErrors
+		r.status.CarriedForwardLists = res.carriedForward
+		refreshDegraded.Set(1)
 		return
 	}
 	r.status.State = StateSucceeded
-	r.status.LastError = ""
+	refreshDegraded.Set(0)
 }
 
-func (r *Refresher) run(ctx context.Context) error {
+func (r *Refresher) run(ctx context.Context) (refreshResult, error) {
 	ctx, span := telemetry.StartSpan(ctx, "refresh-all-sources")
 	defer span.End()
 
+	var res refreshResult
+
 	stats, err := r.dl.RefreshAll(ctx)
 	if err != nil {
-		return err
+		return res, err
+	}
+
+	if len(stats.IgnoredErrors) > 0 {
+		res.ignoredErrors = stats.IgnoredErrors
+		res.carriedForward = r.carryForwardIgnoredLists(ctx, &stats)
 	}
 
 	entityCount := len(stats.Entities)
@@ -168,12 +210,63 @@ func (r *Refresher) run(ctx context.Context) error {
 	if r.searchService != nil {
 		// Rebuild reads entities from the live index (corpus), not stats.Entities.
 		if err := r.searchService.RebuildEmbeddingIndex(ctx); err != nil {
-			return fmt.Errorf("failed to rebuild embedding index: %w", err)
+			return res, fmt.Errorf("failed to rebuild embedding index: %w", err)
 		}
 	}
 
 	r.logger.Info().Logf("search index swapped (%d entities, heap %.2fGB)", entityCount, getCurrentMemoryUsed())
-	return nil
+	return res, nil
+}
+
+// carryForwardIgnoredLists keeps the previously indexed generation of every list
+// in stats.IgnoredErrors. Without this, index.Update would replace the whole
+// corpus with a generation that lacks the failed list and screening against it
+// (e.g. OFAC SDN) would silently stop. Returns the lists that were carried
+// forward; lists that were never loaded stay absent and remain reported in
+// IgnoredErrors.
+func (r *Refresher) carryForwardIgnoredLists(ctx context.Context, stats *Stats) []string {
+	failed := make([]string, 0, len(stats.IgnoredErrors))
+	for name := range stats.IgnoredErrors {
+		failed = append(failed, name)
+	}
+	slices.Sort(failed)
+
+	for _, name := range failed {
+		ignoredListErrors.WithLabelValues(name).Inc()
+	}
+
+	if r.indexedLists == nil {
+		return nil
+	}
+	previous := r.indexedLists.LatestStats()
+
+	var carried []string
+	for _, name := range failed {
+		if _, ok := previous.Lists[name]; !ok {
+			r.logger.Warn().Logf("ignored list %s failed and has no previous data to keep", name)
+			continue
+		}
+
+		entities, err := r.indexedLists.GetEntities(ctx, search.SourceList(name))
+		if err != nil {
+			r.logger.Error().LogErrorf("ignored list %s failed and previous data could not be read: %v", name, err)
+			continue
+		}
+
+		stats.Lists[name] = len(entities)
+		stats.ListHashes[name] = previous.ListHashes[name]
+		stats.Entities = append(stats.Entities, entities...)
+		carried = append(carried, name)
+
+		r.logger.Warn().Logf("ignored list %s failed (%s) - keeping %d previously loaded entities",
+			name, stats.IgnoredErrors[name], len(entities))
+	}
+
+	if len(carried) > 0 {
+		// The TF-IDF index was built before the carried entities were appended.
+		stats.TFIDFIndex = buildTFIDFIndex(r.logger, stats.Entities)
+	}
+	return carried
 }
 
 func getCurrentMemoryUsed() float64 {
