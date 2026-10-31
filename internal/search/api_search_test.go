@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -734,4 +735,24 @@ func BenchmarkAPI_Search(b *testing.B) {
 			}
 		}
 	})
+}
+
+func TestClampSearchLimit(t *testing.T) {
+	cases := []struct {
+		name  string
+		input int
+		want  int
+	}{
+		{name: "negative", input: -1, want: softResultsLimit},
+		{name: "zero", input: 0, want: softResultsLimit},
+		{name: "in range", input: 25, want: 25},
+		{name: "at hard limit", input: hardResultsLimit, want: hardResultsLimit},
+		{name: "above hard limit", input: hardResultsLimit + 1, want: hardResultsLimit},
+		{name: "max int", input: math.MaxInt, want: hardResultsLimit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, ClampSearchLimit(tc.input))
+		})
+	}
 }

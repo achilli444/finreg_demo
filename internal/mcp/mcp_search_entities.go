@@ -80,7 +80,7 @@ func (s *Server) HandleSearchEntities(ctx context.Context, req *mcp.CallToolRequ
 	}
 
 	if args.Limit != nil {
-		opts.Limit = *args.Limit
+		opts.Limit = search.ClampSearchLimit(*args.Limit)
 	}
 	if args.MinMatch != nil {
 		opts.MinMatch = *args.MinMatch
