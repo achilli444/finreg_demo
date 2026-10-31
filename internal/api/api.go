@@ -27,8 +27,15 @@ func encodeError(w http.ResponseWriter, err error) error {
 	})
 }
 
+// JsonResponse writes object as JSON and allows any origin to read it.
+// Handlers that apply their own CORS policy should call WriteJSON instead.
 func JsonResponse[T any](w http.ResponseWriter, object T) error {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	return WriteJSON(w, object)
+}
+
+// WriteJSON writes object as JSON without adding any Access-Control-* headers.
+func WriteJSON[T any](w http.ResponseWriter, object T) error {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Encode to a buffer first to avoid writing headers before we know if encoding succeeds

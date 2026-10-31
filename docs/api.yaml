@@ -642,7 +642,12 @@ paths:
         Import a CSV or Senzing file as a named dataset. Rows are stored (MySQL/Postgres
         when configured) and loaded into the in-memory search index. A per-source checksum
         avoids scanning the table on every search. Request bodies are capped (32MiB by
-        default; see Ingest.MaxBodyBytes / INGEST_MAX_BODY_BYTES).
+        default; see Ingest.MaxBodyBytes / INGEST_MAX_BODY_BYTES), as are inflated gzip
+        bodies (Ingest.MaxDecompressedBytes) and rows per upload (Ingest.MaxEntities).
+
+        The request must carry a Content-Type that is not CORS-safelisted (text/plain,
+        application/x-www-form-urlencoded and multipart/form-data return 415). Browser
+        requests from an Origin not on Ingest.AllowedOrigins return 403.
       parameters:
         - name: fileType
           in: path
@@ -653,13 +658,31 @@ paths:
       requestBody:
         required: true
         content:
-          text/plain:
+          text/csv:
             schema:
               description: A plaintext CSV file
               type: string
               example: |
                 first,middle,last
                 john,,doe
+          application/json:
+            schema:
+              description: Senzing JSON array
+              type: string
+          application/x-ndjson:
+            schema:
+              description: Senzing JSON Lines
+              type: string
+          application/gzip:
+            schema:
+              description: Gzip compressed CSV or Senzing file
+              type: string
+              format: binary
+          application/octet-stream:
+            schema:
+              description: Any of the above; the server sniffs gzip
+              type: string
+              format: binary
       responses:
         '200':
           description: File ingested successfully
@@ -669,6 +692,12 @@ paths:
                 $ref: '#/components/schemas/IngestFileResponse'
         '400':
           description: Missing or invalid fileType
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Browser Origin is not Watchman's own host or on Ingest.AllowedOrigins
           content:
             application/json:
               schema:
@@ -710,6 +739,12 @@ paths:
               - senzing/jsonl
               - senzing/ndjson
       responses:
+        '415':
+          description: Missing or CORS-safelisted Content-Type (text/plain, form-urlencoded, multipart)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Export successful
           content:
