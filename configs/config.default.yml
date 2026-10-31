@@ -23,6 +23,48 @@ Watchman:
   Webui:
     BasePath: "/"
 
+  # Custom file datasets uploaded with POST /v2/ingest/{fileType}.
+  # Each key under files is a fileType (the "source" used in searches).
+  # Rows are kept in-process only unless Database (above) is configured.
+  # See docs/ingest.md for the CSV schema and upload procedure.
+  Ingest:
+    MaxBodyBytes: 33554432 # 32MiB; oversized uploads return HTTP 413
+    files:
+      # Entities that procure rare-earth minerals, designated under the
+      # updated US Government rare-earth procurement regulations.
+      # Seed file: configs/ingest/rare-earth-entities.csv
+      # Search with: GET /v2/search?source=rare-earth-business&type=business&name=...&minMatch=0.80
+      rare-earth-business:
+        format: csv
+        mapping:
+          name:
+            column: entity_name
+          sourceID:
+            column: record_id # stable per entity; repeat a record_id on extra rows to add aliases
+          type:
+            default: "business"
+          business:
+            name:
+              column: entity_name
+            altNames:
+              columns: alt_name
+            governmentIDs:
+              type:
+                column: id_type
+              identifier:
+                column: id_number
+          addresses:
+            line1:
+              columns: street
+            city:
+              columns: city
+            state:
+              columns: state
+            postalCode:
+              columns: zip
+            country:
+              columns: country
+
   Download:
     RefreshInterval: "12h"
     InitialDataDirectory: ""
