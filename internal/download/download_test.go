@@ -39,6 +39,65 @@ func TestDownloader_RefreshAll_InitialDir(t *testing.T) {
 	require.NotEmpty(t, stats.ListHashes[name])
 }
 
+// TestDownloader_RefreshAll_NoListsConfigured verifies that a refresh with no
+// configured lists fails instead of succeeding with an empty corpus, and that
+// the opt-out (config field or ALLOW_EMPTY_INCLUDED_LISTS) restores the old
+// behavior for deployments that intentionally run without downloaded lists.
+func TestDownloader_RefreshAll_NoListsConfigured(t *testing.T) {
+	logger := log.NewTestLogger()
+
+	t.Run("fails by default", func(t *testing.T) {
+		dl, err := download.NewDownloader(logger, download.Config{}, nil)
+		require.NoError(t, err)
+
+		stats, err := dl.RefreshAll(context.Background())
+		require.ErrorIs(t, err, download.ErrNoListsConfigured)
+		require.Empty(t, stats.Entities)
+	})
+
+	t.Run("blank entries do not count as lists", func(t *testing.T) {
+		t.Setenv("INCLUDED_LISTS", " , ")
+
+		dl, err := download.NewDownloader(logger, download.Config{
+			IncludedLists: []search.SourceList{"  "},
+		}, nil)
+		require.NoError(t, err)
+
+		_, err = dl.RefreshAll(context.Background())
+		require.ErrorIs(t, err, download.ErrNoListsConfigured)
+	})
+
+	t.Run("opt-out from config", func(t *testing.T) {
+		dl, err := download.NewDownloader(logger, download.Config{AllowEmptyIncludedLists: true}, nil)
+		require.NoError(t, err)
+
+		stats, err := dl.RefreshAll(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, stats.Entities)
+		require.Empty(t, stats.Lists)
+	})
+
+	t.Run("opt-out from env", func(t *testing.T) {
+		t.Setenv("ALLOW_EMPTY_INCLUDED_LISTS", "true")
+
+		dl, err := download.NewDownloader(logger, download.Config{}, nil)
+		require.NoError(t, err)
+
+		_, err = dl.RefreshAll(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("env overrides config opt-out", func(t *testing.T) {
+		t.Setenv("ALLOW_EMPTY_INCLUDED_LISTS", "false")
+
+		dl, err := download.NewDownloader(logger, download.Config{AllowEmptyIncludedLists: true}, nil)
+		require.NoError(t, err)
+
+		_, err = dl.RefreshAll(context.Background())
+		require.ErrorIs(t, err, download.ErrNoListsConfigured)
+	})
+}
+
 func TestDownloader_Geocode(t *testing.T) {
 	logger := log.NewTestLogger()
 	conf := download.Config{

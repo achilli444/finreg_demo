@@ -97,7 +97,15 @@ expose `:9094` on the public internet.
 watchman_http_request_duration_seconds_bucket{method="GET",route="/v2/search",code="200",le="0.25"}
 watchman_http_request_duration_seconds_sum{...}
 watchman_http_request_duration_seconds_count{...}
+watchman_download_list_entities{list="us_ofac"}
+watchman_download_list_entities{list="us_non_sdn"}
+watchman_download_lists_loaded
 ```
+
+`watchman_download_list_entities` and `watchman_download_lists_loaded` describe the most
+recent successful data refresh: which source lists were loaded and how many entities each
+contributed. Alert when a required list is missing or reports zero entities, for example
+`absent(watchman_download_list_entities{list="us_ofac"}) or watchman_download_list_entities{list="us_ofac"} == 0`.
 
 The `route` label is the registered path template, not the requested path — so
 `/v2/ingest/{fileType}` stays one time series no matter how many file types are seen, and
@@ -122,9 +130,15 @@ sum(rate(watchman_http_request_duration_seconds_count[5m])) by (route)
 
     # Specify which lists to download and include in Watchman results
     # Examples: us_csl, us_ofac, us_non_sdn, us_fincen_311, uk_csl, eu_csl, un_csl
+    # The shipped default is us_ofac and us_non_sdn (OFAC SDN + Non-SDN). Lists named
+    # in INCLUDED_LISTS are added to this set.
     IncludedLists:
-      - "us_csl"
       - "us_ofac"
+      - "us_non_sdn"
+
+    # A refresh fails when no lists are configured at all (every search would return
+    # "no match" against an empty corpus). Set true only for an ingest-only instance.
+    AllowEmptyIncludedLists: false
 
     # Source-list names for which download or parse errors are suppressed.
     # A failed list named here will log a warning but will not cause a refresh error.
@@ -282,7 +296,8 @@ The US CSL Nonproliferation Sanctions source code is `ACN` (Bureau of Arms Contr
 
 | Environmental Variable         | Description                                                                                                                          | Default                                     |
 |--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------|
-| `INCLUDED_LISTS`               | Comma separated list of lists to include.                                                                                            | Empty                                       |
+| `INCLUDED_LISTS`               | Comma separated list of lists to include, merged with `Download.IncludedLists` from the config file.                                 | Empty (config default: `us_ofac,us_non_sdn`) |
+| `ALLOW_EMPTY_INCLUDED_LISTS`   | If true, a refresh with no configured lists succeeds with an empty corpus instead of failing. For ingest-only deployments.           | false                                       |
 | `IGNORED_DOWNLOAD_ERRORS`      | Comma separated list of source-list names for which download/parse errors are suppressed.                                            | Empty                                       |
 | `SENZING_CONCURRENT_DOWNLOADS` | Maximum concurrent downloads for Senzing-formatted lists (OpenSanctions, custom). 0 or less = unlimited.                             | `5`                                         |
 | `DATA_REFRESH_INTERVAL`        | Interval for data redownload and reparse. `off` disables this refreshing.                                                            | 12h                                         |

@@ -98,7 +98,7 @@ Small Jaro–Winkler environment flags (prefix size, Soundex) barely change thos
 | `algorithm` | jaro-winkler | Per-request name metric. Phonetic options (Soundex, and others) help little on transliteration. |
 | `ID_CONFLICT_PENALTY_MULTIPLIER` | 0.70 | When both records have the same ID type and country but different numbers. Set `1` to turn this off. |
 | `NAME_NUMERAL_CONFLICT_PENALTY_MULTIPLIER` | 0.70 | When both names contain a numeral and they disagree (`No. 8` vs `No. 6`). A missing numeral on one side is not a conflict. Set `1` to turn this off. |
-| `INCLUDED_LISTS` | all downloadable | Start with `us_ofac`. Add `us_csl`, `eu_csl`, `uk_csl`, `un_csl` as needed. |
+| `INCLUDED_LISTS` | `us_ofac,us_non_sdn` (config default) | OFAC SDN and Non-SDN always load. Add `us_csl`, `eu_csl`, `uk_csl`, `un_csl` as needed. Empty fails startup unless `ALLOW_EMPTY_INCLUDED_LISTS=true`. |
 | `SEARCH_MAX_IN_FLIGHT` | GOMAXPROCS | Caps concurrent *large* searches. Tight queries (≤100 candidates) skip the queue. |
 
 Full tables: [Configuration](/watchman/config/).

@@ -26,7 +26,7 @@ Start here: [Using Watchman](/watchman/using-watchman/) · [Docker](/watchman/us
 
 ## Included lists
 
-Use `INCLUDED_LISTS` or the [config file](/watchman/config/#included-lists) to choose what loads. Empty means the built-in downloadable lists.
+Use `INCLUDED_LISTS` or the [config file](/watchman/config/#included-lists) to choose what loads. The default config loads OFAC SDN and Non-SDN (`us_ofac`, `us_non_sdn`); a refresh with no lists configured fails unless `ALLOW_EMPTY_INCLUDED_LISTS=true`.
 
 | Source | List |
 |--------|------|

@@ -53,6 +53,12 @@ type embeddingRebuilder interface {
 	RebuildEmbeddingIndex(ctx context.Context) error
 }
 
+// ListMetrics receives the loaded list set (list name -> entity count) after each
+// successful refresh, e.g. metrics.DownloadMetrics.
+type ListMetrics interface {
+	RecordLists(lists map[string]int)
+}
+
 // Refresher coordinates full data refreshes with single-flight semantics and status tracking.
 type Refresher struct {
 	baseCtx context.Context
@@ -61,6 +67,7 @@ type Refresher struct {
 	dl            Downloader
 	indexedLists  statsUpdater
 	searchService embeddingRebuilder
+	listMetrics   ListMetrics
 
 	mu      sync.Mutex
 	running bool
@@ -76,6 +83,12 @@ func NewRefresher(baseCtx context.Context, logger log.Logger, dl Downloader, su 
 		searchService: es,
 		status:        Status{State: StateIdle},
 	}
+}
+
+// SetListMetrics publishes the loaded list set and per-list entity counts to m
+// after every successful refresh. Call it before the first refresh.
+func (r *Refresher) SetListMetrics(m ListMetrics) {
+	r.listMetrics = m
 }
 
 // RefreshNow runs a full refresh synchronously. Returns ErrAlreadyRunning if one is in progress.
@@ -156,6 +169,10 @@ func (r *Refresher) run(ctx context.Context) error {
 	entityCount := len(stats.Entities)
 	r.logger.Info().Logf("data refreshed - %v entities from %v lists took %v (using %.2fGB)",
 		entityCount, len(stats.Lists), stats.EndedAt.Sub(stats.StartedAt), getCurrentMemoryUsed())
+
+	if r.listMetrics != nil {
+		r.listMetrics.RecordLists(stats.Lists)
+	}
 
 	if r.indexedLists != nil {
 		// Index takes ownership of the entity slice inside the corpus. Clear our
