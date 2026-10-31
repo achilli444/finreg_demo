@@ -118,6 +118,9 @@ sum(rate(watchman_http_request_duration_seconds_count[5m])) by (route)
 ```yaml
   Download:
     RefreshInterval: "12h"
+    # How old the last successful refresh may be before GET /v2/data/refresh reports
+    # "stale": true and watchman_data_stale is 1. Default: 2x RefreshInterval.
+    MaxStaleness: "24h"
     InitialDataDirectory: ""
 
     # Specify which lists to download and include in Watchman results
@@ -432,8 +435,13 @@ YAML configuration (example with OpenAI):
 
 #### Download reliability
 
-Sanctions list downloads/endpoints (OFAC, trade.gov, EU, UK, UN, etc.) are occasionally slow, return errors, or are unreachable for extended periods. A failed download on startup or during a
-refresh will prevent Watchman from serving requests (initial download failures cause a fatal exit).
+Sanctions list downloads/endpoints (OFAC, trade.gov, EU, UK, UN, etc.) are occasionally slow, return errors, or are unreachable for extended periods. A failed download on startup causes a fatal exit (Watchman never serves without data). A failed **scheduled** refresh keeps the previously loaded data and is surfaced three ways so it cannot go unnoticed:
+
+- `GET /v2/data/refresh` reports `state: failed`, `lastError`, `consecutiveFailures`, `lastSuccessAt` (age of the data being served) and `stale: true` once `lastSuccessAt` is older than `Download.MaxStaleness` (env `DATA_MAX_STALENESS`, default twice the refresh interval).
+- An error log line per failed tick, plus `sanctions data is STALE ...` once the staleness limit is exceeded.
+- Prometheus metrics on the admin server: `watchman_data_refresh_last_success_timestamp_seconds`, `watchman_data_refresh_failures_total{trigger}`, `watchman_data_refresh_consecutive_failures`, `watchman_data_stale`, `watchman_data_list_entities{list}`.
+
+A list whose download returns only *some* of its files (OFAC is four files) is a failure, not a partial success: `GetFiles` returns an error and the list is not swapped in. Only lists named in `IgnoredDownloadErrors` may degrade without failing the refresh. See [Compliance gap report](/watchman/compliance/).
 
 For production deployments, consider running [moov-io/watchman-cache](https://github.com/moov-io/watchman-cache) as a reverse proxy in front of Watchman. It is an optional companion project that provides:
 
@@ -457,9 +465,22 @@ A working `docker-compose.yml` example and Go integration test are provided in t
 
 This approach is complementary to the `INITIAL_DATA_DIRECTORY` feature (see [Caching Data Files](/watchman/cache-data-files/)).
 
+### Audit
+
+```yaml
+  Audit:
+    Enabled: true
+    Directory: ""        # empty: write events to the process log (stdout)
+    RetentionDays: 1825  # delete daily files older than this; 0 keeps forever
+    IncludeQuery: true   # false: store only a SHA-256 of the query (data minimisation)
+    IncludeDetails: true # per-field score pieces when the search computed them
+```
+
+When enabled, every `GET /v2/search` and MCP `search_entities` call appends one JSON event containing the request ID, channel, algorithm, effective `minMatch` and `limit`, the normalised query (or its hash), the list hashes and refresh timestamps in use (`listInfo`), every returned hit with its score (and score pieces when `debug=true` / `includeDetails`), latency and any error. With a `Directory`, events go to append-only `screening-YYYY-MM-DD.jsonl` files (UTC, mode 0640) and files older than `RetentionDays` are removed on rotation. Audit write failures log `AUDIT WRITE FAILED` and never fail the search. Ship these files (or the stdout lines) to retained, access-controlled storage; see [Compliance gap report](/watchman/compliance/).
+
 ## Data persistence
 
-Watchman **does not store search queries**. There is no screening log inside the process. Your application must retain who was screened, when, against which list hashes (`GET /v2/listinfo`), at which `minMatch`, and what was returned. Restarting Watchman does not replay past searches.
+Watchman keeps **no searchable store of past queries**, but with `Audit.Enabled: true` (the default) it appends one record per screening request to the audit log described above. Restarting Watchman does not replay past searches. Every search response also carries `listInfo` (list hashes, refresh timestamps, version) so a result can be tied to the exact list publication that produced it. If you disable the audit log, your application must retain who was screened, when, against which list hashes, at which `minMatch`, and what was returned.
 
 Downloaded government lists live **in memory**. On restart Watchman loads them again from the origin, from `INITIAL_DATA_DIRECTORY`, or from [watchman-cache](/watchman/cache-data-files/). No in-memory encryption is performed.
 

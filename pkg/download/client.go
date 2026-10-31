@@ -127,6 +127,7 @@ func (dl *Downloader) GetFiles(ctx context.Context, dir string, namesAndSources 
 
 	var mu sync.Mutex
 	out := make(Files)
+	var downloadErrs []error
 	var wg sync.WaitGroup
 	wg.Add(len(namesAndSources))
 
@@ -166,6 +167,9 @@ findfiles:
 
 			if err != nil {
 				logger.Error().LogErrorf("FAILURE after %v to download: %v", dur, err)
+				mu.Lock()
+				downloadErrs = append(downloadErrs, fmt.Errorf("%s: %w", filename, err))
+				mu.Unlock()
 				return
 			}
 
@@ -177,6 +181,14 @@ findfiles:
 		}(&wg, name, source)
 	}
 	wg.Wait()
+
+	// A partial file set must never be indexed as if it were a complete list.
+	// Callers (and IgnoredDownloadErrors) decide whether a failed list is fatal,
+	// but they can only do that if the failure is surfaced here.
+	if len(downloadErrs) > 0 {
+		out.Close()
+		return nil, fmt.Errorf("%d of %d files failed to download: %w", len(downloadErrs), len(namesAndSources), errors.Join(downloadErrs...))
+	}
 
 	return out, nil
 }

@@ -498,7 +498,7 @@ var (
 	// Regular expressions for parsing relationships and sanctions
 	linkedToRegex   = regexp.MustCompile(`(?i)Linked\s+To:\s+([^;]+)`)
 	subsidiaryRegex = regexp.MustCompile(`(?i)Subsidiary\s+Of:\s+([^;]+)`)
-	ownedByRegex    = regexp.MustCompile(`(?i)(?:Owned|Controlled)\s+By:\s+([^;]+)`)
+	ownedByRegex    = regexp.MustCompile(`(?i)(Owned|Controlled)\s+By:\s+([^;]+)`)
 	sanctionsRegex  = regexp.MustCompile(`(?i)Additional\s+Sanctions\s+Information\s+-\s+([^;]+)`)
 	formerNameRegex = regexp.MustCompile(`(?i)(?:Former|Previous|f\.k\.a\.|p\.k\.a\.)\s+(?:Name|Vessel):\s+([^;]+)`)
 	titleRegex      = regexp.MustCompile(`(?i)Title:\s+([^;]+)`)
@@ -536,9 +536,16 @@ func parseRemarks(remarks []string) ([]search.Affiliation, *search.SanctionsInfo
 		// Parse owned/controlled by relationships
 		if matches := ownedByRegex.FindAllStringSubmatch(remark, -1); matches != nil {
 			for _, m := range matches {
+				// Keep "Owned By" and "Controlled By" distinct from "Subsidiary Of" so the
+				// relationship a 50% rule / ownership-and-control review depends on is not lost.
+				affType := "Owned By"
+				if strings.EqualFold(m[1], "controlled") {
+					affType = "Controlled By"
+				}
 				affiliations = append(affiliations, search.Affiliation{
-					EntityName: strings.TrimSpace(m[1]),
-					Type:       "Subsidiary Of",
+					EntityName:       strings.TrimSpace(m[2]),
+					Type:             affType,
+					OwnershipPercent: parseOwnershipPercent(m[2]),
 				})
 			}
 		}
@@ -822,3 +829,19 @@ func invalidDate(when time.Time) bool {
 // United Social Credit Code Certificate (USCCC) 91420112711981060J (China)
 // V.A.T. Number 0430.033.662 (Belgium)
 // VisaNumberID 2024702 (Mexico).
+
+var ownershipPercentRegex = regexp.MustCompile(`(\d{1,3}(?:\.\d+)?)\s*%`)
+
+// parseOwnershipPercent extracts a publisher-stated stake such as "(51%)" from an
+// ownership remark. It returns 0 when no percentage is stated.
+func parseOwnershipPercent(remark string) float64 {
+	m := ownershipPercentRegex.FindStringSubmatch(remark)
+	if m == nil {
+		return 0
+	}
+	pct, err := strconv.ParseFloat(m[1], 64)
+	if err != nil || pct <= 0 || pct > 100 {
+		return 0
+	}
+	return pct
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/moov-io/base/log"
 	"github.com/moov-io/base/telemetry"
 	"github.com/moov-io/watchman"
+	"github.com/moov-io/watchman/internal/audit"
 	"github.com/moov-io/watchman/internal/config"
 	"github.com/moov-io/watchman/internal/db"
 	"github.com/moov-io/watchman/internal/deepparse"
@@ -126,6 +127,23 @@ func main() {
 		logger.Fatal().LogErrorf("problem setting up search service: %v", err)
 		os.Exit(1)
 	}
+
+	// Screening requests go through the audit decorator when enabled so every
+	// HTTP/MCP search leaves an append-only record (docs/compliance.md).
+	var screeningService search.Service = searchService
+	if conf.Audit.Enabled {
+		auditSink, err := audit.NewSink(logger, conf.Audit)
+		if err != nil {
+			logger.Fatal().LogErrorf("problem setting up audit log: %v", err)
+			os.Exit(1)
+		}
+		defer auditSink.Close()
+		screeningService = audit.Wrap(logger, conf.Audit, auditSink, searchService)
+		logger.Info().Logf("screening audit log enabled (directory=%q retentionDays=%d includeQuery=%v)",
+			conf.Audit.Directory, conf.Audit.RetentionDays, conf.Audit.IncludeQuery)
+	} else {
+		logger.Warn().Log("screening audit log is DISABLED (Audit.Enabled=false) - the integrating application must record every screening request itself")
+	}
 	refreshManager := download.NewRefresher(ctx, logger, downloader, indexedLists, searchService)
 	err = setupPeriodicRefreshing(ctx, logger, errs, conf.Download, refreshManager)
 	if err != nil {
@@ -152,7 +170,7 @@ func main() {
 
 	// Add MCP endpoint if enabled
 	if conf.MCP.Enabled {
-		mcpServer, err := mcp.NewServer(logger, searchService, conf.MCP)
+		mcpServer, err := mcp.NewServer(logger, screeningService, conf.MCP)
 		if err != nil {
 			logger.Fatal().LogErrorf("problem starting MCP server: %v", err)
 			os.Exit(1)
@@ -165,7 +183,7 @@ func main() {
 		logger.Fatal().LogErrorf("problem setting up address parser: %v", err)
 		os.Exit(1)
 	}
-	searchController := search.NewController(logger, searchService, addressParser)
+	searchController := search.NewController(logger, screeningService, addressParser)
 	searchController.AppendRoutes(router)
 
 	refreshController := download.NewRefreshController(logger, refreshManager)

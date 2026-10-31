@@ -128,6 +128,7 @@ func (c *controller) search(w http.ResponseWriter, r *http.Request) {
 		err = api.JsonResponse(w, search.SearchResponse{
 			Query:    req,
 			Entities: entities,
+			ListInfo: c.service.LatestStats().ListInfo(),
 		})
 
 	case api.EntitySenzing:
