@@ -109,6 +109,10 @@ func (fs Files) Close() error {
 //
 // initialDir is an optional filepath to look for files in before attempting to download.
 //
+// Every requested file must be obtained. If any file cannot be read locally or downloaded the
+// files already opened are closed and an error naming each failed file is returned, so callers
+// never receive a partial set of list files.
+//
 // Callers are expected to call the io.Closer interface method when they are done with the file
 func (dl *Downloader) GetFiles(ctx context.Context, dir string, namesAndSources map[string]string) (Files, error) {
 	if dl == nil {
@@ -127,6 +131,7 @@ func (dl *Downloader) GetFiles(ctx context.Context, dir string, namesAndSources 
 
 	var mu sync.Mutex
 	out := make(Files)
+	var errs []error
 	var wg sync.WaitGroup
 	wg.Add(len(namesAndSources))
 
@@ -166,6 +171,10 @@ findfiles:
 
 			if err != nil {
 				logger.Error().LogErrorf("FAILURE after %v to download: %v", dur, err)
+
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("downloading %s from %s: %w", filename, downloadURL, err))
+				mu.Unlock()
 				return
 			}
 
@@ -177,6 +186,13 @@ findfiles:
 		}(&wg, name, source)
 	}
 	wg.Wait()
+
+	if failed := len(errs); failed > 0 {
+		if err := out.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		return nil, fmt.Errorf("%d of %d files could not be obtained: %w", failed, len(namesAndSources), errors.Join(errs...))
+	}
 
 	return out, nil
 }
@@ -201,6 +217,7 @@ func (dl *Downloader) retryDownload(ctx context.Context, downloadURL string) (io
 	}
 
 	// Allow a couple retries for various sources (some are flakey)
+	var lastErr error
 	for i := 0; i < 3; i++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 		if err != nil {
@@ -222,14 +239,16 @@ func (dl *Downloader) retryDownload(ctx context.Context, downloadURL string) (io
 
 		if err != nil {
 			dl.Logger.Error().LogErrorf("err while doing client request: %v", err)
+			lastErr = err
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			resp.Body.Close()
+			lastErr = fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
 			continue
 		}
 		return resp.Body, nil
 	}
-	return nil, errors.New("error max retries reached while trying to obtain file")
+	return nil, fmt.Errorf("error max retries reached while trying to obtain file: %w", lastErr)
 }
